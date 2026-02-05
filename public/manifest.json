@@ -1,6 +1,6 @@
 {
   "name": "Academic Registration System",
-  "short_name": "AcadReg",
+  "short_name": "LEVITsAcademic",
   "description": "Sistema de Registro Académico - App de gestión estudiantil offline-first",
   "start_url": "/",
   "display": "standalone",

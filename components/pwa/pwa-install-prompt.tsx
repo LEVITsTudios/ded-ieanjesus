@@ -44,7 +44,7 @@ export function PWAInstallPrompt() {
             <div>
               <h3 className="font-semibold text-gray-900">Instalar Aplicación</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Instala AcadReg en tu dispositivo para acceso rápido y funcionamiento offline.
+                Instala LEVITsAcademic en tu dispositivo para acceso rápido y funcionamiento offline.
               </p>
             </div>
           </div>

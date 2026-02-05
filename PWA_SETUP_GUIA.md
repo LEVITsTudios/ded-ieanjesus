@@ -267,7 +267,7 @@ export function FormularioConOffline() {
 
 ```
 1. F12 → Application
-2. Sección "IndexedDB" → "AcadRegDB"
+2. Sección "IndexedDB" → "LEVITsAcademicDB"
 3. Tabla "pending" = requests pendientes
 4. Tabla "sync_queue" = datos para sincronizar
 ```

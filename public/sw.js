@@ -4,7 +4,7 @@ const CACHE_VERSION = "v1"
 const CACHE_STATIC = `static-${CACHE_VERSION}`
 const CACHE_DYNAMIC = `dynamic-${CACHE_VERSION}`
 const CACHE_API = `api-${CACHE_VERSION}`
-const DB_NAME = "AcadRegDB"
+const DB_NAME = "LEVITsAcademicDB"
 
 // Recursos estáticos que siempre deben estar en caché
 const STATIC_ASSETS = [

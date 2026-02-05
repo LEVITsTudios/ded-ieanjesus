@@ -295,7 +295,7 @@ F12 DevTools:
 1. Application tab:
    ├─ Service Workers: "active and running"?
    ├─ Cache Storage: Items cacheados?
-   └─ IndexedDB: Base "AcadRegDB" existe?
+   └─ IndexedDB: Base "LEVITsAcademicDB" existe?
 
 2. Network tab:
    ├─ Throttling → Offline
@@ -321,7 +321,7 @@ Android:
 iPhone:
 1. Safari → Compartir
 2. "Add to Home Screen"
-3. Nombre (ej: AcadReg)
+3. Nombre (ej: LEVITsAcademic)
 4. Add
 5. Icono aparece
 ```

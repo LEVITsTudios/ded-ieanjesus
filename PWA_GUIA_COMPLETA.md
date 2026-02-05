@@ -47,7 +47,7 @@ Tu dashboard ahora se puede instalar como una aplicación:
 1. Abre el dashboard en Safari
 2. Toca el botón Compartir (icono de flecha)
 3. Toca "Agregar a la pantalla de inicio"
-4. Nombra la app (ej: "AcadReg")
+4. Nombra la app (ej: "LEVITsAcademic")
 5. Toca "Agregar"
 ```
 

@@ -271,7 +271,7 @@ export function usePWA() {
 // IndexedDB helpers
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("AcadRegDB", 1)
+    const request = indexedDB.open("LEVITsAcademicDB", 1)
     
     request.onerror = () => reject(request.error)
     request.onsuccess = () => resolve(request.result)
