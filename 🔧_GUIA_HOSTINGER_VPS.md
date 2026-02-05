@@ -1,13 +1,40 @@
 # 🔧 Deploy en Hostinger VPS - Guía Práctica
 
-## ⚠️ PREREQUISITO IMPORTANTE
+## ⚠️ PREREQUISITO IMPORTANTE - TÚ TIENES BUSINESS HOSTING COMPARTIDO
 
-**Tu plan Hostinger debe ser:**
-- ✅ VPS (Virtual Private Server)
-- ✅ O Business Hosting + acceso SSH
-- ❌ NO Shared Hosting básico (no soporta Node.js)
+**⚠️ IMPORTANTE:** El **Business Hosting compartido de Hostinger** típicamente **NO soporta Node.js como proceso persistente** (como necesita Next.js).
 
-**Si tienes compartido:** necesitas upgrade a VPS (~$10-20/mes extra)
+### Tu situación:
+```
+Plan Actual: Business Hosting (Compartido)
+Soporte Node.js: ❌ NO (generalmente bloqueado)
+Acceso SSH: ✅ SÍ
+Costo para upgrade: ~$10-20/mes extra
+```
+
+---
+
+## 🎯 TIENES 3 OPCIONES
+
+### ✅ OPCIÓN 1: USAR VERCEL (RECOMENDADO - GRATIS)
+- No requiere cambios en Hostinger
+- Mantiene tu dominio en Hostinger
+- Solo apuntas DNS a Vercel
+- **Tiempo setup: 5 minutos**
+- **Costo adicional: $0**
+- Ver: `🚀_DEPLOY_RAPIDO.md`
+
+### ✅ OPCIÓN 2: UPGRADE A VPS EN HOSTINGER
+- Costo: +$10-20/mes
+- Soporta Node.js nativo
+- Más control
+- **Tiempo setup: 1 hora**
+- Usar esta guía (más abajo)
+
+### ✅ OPCIÓN 3: CONTACTAR HOSTINGER SUPPORT
+- Pregunta si tu plan Business puede ejecutar Node.js
+- Algunos planes sí lo permiten
+- **Antes de intentar:** contacta soporte Hostinger
 
 ---
 
