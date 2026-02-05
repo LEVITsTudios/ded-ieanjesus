@@ -1,0 +1,333 @@
+// public/sw.js - Service Worker con estrategias avanzadas de caching y sincronización
+
+const CACHE_VERSION = "v1"
+const CACHE_STATIC = `static-${CACHE_VERSION}`
+const CACHE_DYNAMIC = `dynamic-${CACHE_VERSION}`
+const CACHE_API = `api-${CACHE_VERSION}`
+const DB_NAME = "AcadRegDB"
+
+// Recursos estáticos que siempre deben estar en caché
+const STATIC_ASSETS = [
+  "/",
+  "/offline",
+  "/manifest.json",
+  "/globals.css",
+  "/_next/static/chunks/main.js",
+  "/_next/static/chunks/webpack.js"
+]
+
+// Instalar el Service Worker
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_STATIC).then((cache) => {
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.log("Error al agregar assets estáticos:", err)
+      })
+    }).then(() => self.skipWaiting())
+  )
+})
+
+// Activar y limpiar cachés viejos
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (
+            cacheName !== CACHE_STATIC &&
+            cacheName !== CACHE_DYNAMIC &&
+            cacheName !== CACHE_API
+          ) {
+            return caches.delete(cacheName)
+          }
+        })
+      )
+    }).then(() => self.clients.claim())
+  )
+})
+
+// Estrategia: Network First para APIs con fallback a caché
+const networkFirstStrategy = async (request) => {
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(CACHE_API)
+      cache.put(request, response.clone())
+    }
+    return response
+  } catch (error) {
+    const cached = await caches.match(request)
+    return cached || createOfflineResponse()
+  }
+}
+
+// Estrategia: Cache First para recursos estáticos
+const cacheFirstStrategy = async (request) => {
+  const cached = await caches.match(request)
+  if (cached) {
+    return cached
+  }
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(CACHE_DYNAMIC)
+      cache.put(request, response.clone())
+    }
+    return response
+  } catch (error) {
+    return createOfflineResponse()
+  }
+}
+
+// Estrategia: Stale While Revalidate para content
+const staleWhileRevalidateStrategy = async (request) => {
+  const cached = await caches.match(request)
+  const fetchPromise = fetch(request).then((response) => {
+    if (response.ok) {
+      const cache = caches.open(CACHE_DYNAMIC)
+      cache.then((c) => c.put(request, response.clone()))
+    }
+    return response
+  })
+  
+  return cached || fetchPromise.catch(() => createOfflineResponse())
+}
+
+// Crear página offline
+const createOfflineResponse = () => {
+  return new Response(
+    `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width">
+        <title>Offline</title>
+        <style>
+          body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+          .container { text-align: center; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 400px; }
+          h1 { color: #333; margin: 0 0 20px 0; }
+          p { color: #666; font-size: 16px; line-height: 1.5; }
+          .icon { font-size: 60px; margin-bottom: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="icon">📡</div>
+          <h1>Sin Conexión</h1>
+          <p>Parece que no tienes conexión a internet. Los datos en caché estarán disponibles cuando reconectes.</p>
+          <p style="font-size: 14px; color: #999; margin-top: 30px;">Sincronización automática cuando haya conexión</p>
+        </div>
+      </body>
+    </html>
+    `,
+    {
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: new Headers({
+        "Content-Type": "text/html; charset=utf-8"
+      })
+    }
+  )
+}
+
+// Interceptar requests
+self.addEventListener("fetch", (event) => {
+  const { request } = event
+  const url = new URL(request.url)
+
+  // Ignora requests no-GET
+  if (request.method !== "GET") {
+    return
+  }
+
+  // Ignora requests externas
+  if (url.origin !== location.origin) {
+    return
+  }
+
+  // Rutas API - Network First
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(networkFirstStrategy(request))
+    return
+  }
+
+  // Recursos estáticos (_next, public) - Cache First
+  if (
+    url.pathname.startsWith("/_next") ||
+    url.pathname.match(/\.(css|js|woff|woff2|png|jpg|jpeg|svg|ico)$/)
+  ) {
+    event.respondWith(cacheFirstStrategy(request))
+    return
+  }
+
+  // Páginas HTML - Stale While Revalidate
+  if (request.headers.get("accept")?.includes("text/html")) {
+    event.respondWith(staleWhileRevalidateStrategy(request))
+    return
+  }
+
+  // Default: Network First
+  event.respondWith(networkFirstStrategy(request))
+})
+
+// Sincronización en background
+self.addEventListener("sync", (event) => {
+  if (event.tag === "sync-data") {
+    event.waitUntil(syncPendingData())
+  }
+})
+
+// Sincronizar datos pendientes
+async function syncPendingData() {
+  try {
+    const db = await openDB()
+    const pendingRequests = await getAllPending(db)
+    
+    for (const request of pendingRequests) {
+      try {
+        const response = await fetch(request.url, {
+          method: request.method,
+          body: request.body ? JSON.parse(request.body) : undefined,
+          headers: request.headers ? JSON.parse(request.headers) : {}
+        })
+        
+        if (response.ok) {
+          await deletePending(db, request.id)
+          // Notificar al cliente
+          self.clients.matchAll().then((clients) => {
+            clients.forEach((client) => {
+              client.postMessage({
+                type: "SYNC_COMPLETE",
+                success: true,
+                data: request
+              })
+            })
+          })
+        }
+      } catch (error) {
+        console.log("Error sincronizando:", error)
+      }
+    }
+  } catch (error) {
+    console.log("Error en background sync:", error)
+  }
+}
+
+// IndexedDB para datos pendientes
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1)
+    
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result)
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result
+      if (!db.objectStoreNames.contains("pending")) {
+        db.createObjectStore("pending", { keyPath: "id", autoIncrement: true })
+      }
+      if (!db.objectStoreNames.contains("sync_queue")) {
+        db.createObjectStore("sync_queue", { keyPath: "id", autoIncrement: true })
+      }
+    }
+  })
+}
+
+// Obtener todos los requests pendientes
+function getAllPending(db) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["pending"], "readonly")
+    const store = transaction.objectStore("pending")
+    const request = store.getAll()
+    
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+// Eliminar request pendiente
+function deletePending(db, id) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["pending"], "readwrite")
+    const store = transaction.objectStore("pending")
+    const request = store.delete(id)
+    
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })
+}
+
+// Recibir mensajes del cliente
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting()
+  }
+  
+  if (event.data && event.data.type === "REQUEST_SYNC") {
+    self.registration.sync.register("sync-data")
+  }
+})
+
+// Push Notifications
+self.addEventListener("push", (event) => {
+  const data = event.data?.json() || {}
+  
+  const options = {
+    body: data.body || "Nueva notificación",
+    icon: "/icon-192x192.png",
+    badge: "/icon-192x192.png",
+    tag: data.tag || "default",
+    data: data.data || {},
+    vibrate: [200, 100, 200],
+    actions: [
+      {
+        action: "open",
+        title: "Abrir"
+      },
+      {
+        action: "close",
+        title: "Cerrar"
+      }
+    ]
+  }
+  
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Notificación", options)
+  )
+})
+
+// Click en notificación
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  
+  if (event.action === "close") {
+    return
+  }
+  
+  const urlToOpen = event.notification.data.url || "/"
+  
+  event.waitUntil(
+    clients.matchAll({
+      type: "window",
+      includeUncontrolled: true
+    }).then((clientList) => {
+      // Buscar si hay una ventana abierta
+      for (let i = 0; i < clientList.length; i++) {
+        const client = clientList[i]
+        if (client.url === urlToOpen && "focus" in client) {
+          return client.focus()
+        }
+      }
+      // Si no hay ventana abierta, abrir una nueva
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen)
+      }
+    })
+  )
+})
+
+// Close notification
+self.addEventListener("notificationclose", (event) => {
+  console.log("Notificación cerrada:", event.notification)
+})
