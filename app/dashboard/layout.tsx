@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { DashboardSidebar } from "@/components/dashboard/sidebar"
 import { DashboardHeader } from "@/components/dashboard/header"
+import { MobileNavigation } from "@/components/mobile/navigation"
 import { OfflineIndicator } from "@/components/pwa/offline-indicator"
 import { PWAInstallPrompt } from "@/components/pwa/pwa-install-prompt"
 import { NotificationSetup } from "@/components/pwa/notification-setup"
@@ -36,14 +37,17 @@ export default async function DashboardLayout({
           <NotificationSetup />
         </div>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
+        {/* Main content - con padding inferior para footer nav móvil */}
+        <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8 pb-20 md:pb-8">
           {children}
         </main>
       </div>
 
       {/* Componentes PWA flotantes */}
       <PWAInstallPrompt />
+      
+      {/* Navegación móvil (footer bar) */}
+      <MobileNavigation />
     </div>
   )
 }

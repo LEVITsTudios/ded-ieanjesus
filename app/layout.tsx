@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Inter, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 import PWAInitializer from '@/components/pwa/initializer'
+import ThemeProvider from '@/components/theme-provider'
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -48,7 +49,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <link rel="icon" href="/icon-192x192.png" />
@@ -60,7 +61,9 @@ export default function RootLayout({
         <meta name="theme-color" content="#3b82f6" />
       </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
-        {children}
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
         <PWAInitializer />
       </body>
     </html>
