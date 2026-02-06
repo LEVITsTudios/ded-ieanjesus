@@ -321,7 +321,7 @@ export default function StudentFormPage() {
               <div className="space-y-2">
                 <Label>Nacionalidad</Label>
                 <Input
-                  placeholder="Ej: Mexicana"
+                  placeholder="Ej: Ecuatoriana"
                   value={formData.nationality}
                   onChange={(e) =>
                     updateFormData("nationality", e.target.value)

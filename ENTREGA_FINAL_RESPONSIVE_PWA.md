@@ -321,7 +321,7 @@ Android:
 iPhone:
 1. Safari → Compartir
 2. "Add to Home Screen"
-3. Nombre (ej: LEVITsAcademic)
+3. Nombre (ej: LVTsAcademic)
 4. Add
 5. Icono aparece
 ```

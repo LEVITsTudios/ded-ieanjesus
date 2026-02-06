@@ -9,11 +9,12 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   
   const userRole = user?.user_metadata?.role || "student"
+  const userId = user?.id || ""
 
   return (
     <div className="space-y-6">
       {/* Stats Grid */}
-      <DashboardStats userRole={userRole} />
+      <DashboardStats userRole={userRole} userId={userId} />
 
       {/* Main Content */}
       <div className="grid gap-6 lg:grid-cols-3">

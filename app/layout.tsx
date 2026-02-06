@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "LEVITsAcademic"
+    title: "LVTsAcademic"
   },
   formatDetection: {
     telephone: false
@@ -56,21 +56,29 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="LEVITsAcademic" />
+        <meta name="apple-mobile-web-app-title" content="LVTsAcademic" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#3b82f6" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                const theme = localStorage.getItem('theme') || 'system';
-                const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-                if (isDark) document.documentElement.classList.add('dark');
-              } catch (e) {}
-            `,
+            __html: `(function () {
+  try {
+    var stored = localStorage.getItem('theme');
+    var theme = stored || 'system';
+    var prefersDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var isDark = theme === 'dark' || (theme === 'system' && prefersDark);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      try { document.documentElement.style.colorScheme = 'dark'; } catch(e) {}
+    } else {
+      document.documentElement.classList.remove('dark');
+      try { document.documentElement.style.colorScheme = 'light'; } catch(e) {}
+    }
+  } catch (e) {}
+})();`,
           }}
         />
-      </head>
+      </head>"
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           {children}

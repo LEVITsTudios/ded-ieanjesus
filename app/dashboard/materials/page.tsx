@@ -33,7 +33,7 @@ const materials = [
   },
   {
     id: 2,
-    title: "Video: Revolucion Mexicana",
+    title: "Video: Revolucion Ecuatoriana",
     description: "Documental sobre los eventos clave de la revolucion",
     course: "Historia",
     type: "video",
