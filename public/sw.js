@@ -230,6 +230,9 @@ function openDB() {
       if (!db.objectStoreNames.contains("sync_queue")) {
         db.createObjectStore("sync_queue", { keyPath: "id", autoIncrement: true })
       }
+      if (!db.objectStoreNames.contains("notifications")) {
+        db.createObjectStore("notifications", { keyPath: "id", autoIncrement: true })
+      }
     }
   })
 }
@@ -292,9 +295,36 @@ self.addEventListener("push", (event) => {
     ]
   }
   
-  event.waitUntil(
-    self.registration.showNotification(data.title || "Notificación", options)
-  )
+  event.waitUntil((async () => {
+    await self.registration.showNotification(data.title || "Notificación", options)
+
+    // Try to persist notification server-side
+    try {
+      await fetch('/api/notifications', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: data.title, body: data.body || null, data: data.data || null })
+      })
+    } catch (e) {
+      // ignore
+      console.log('SW: error persisting notification to server', e)
+    }
+
+    // Save locally to IndexedDB
+    try {
+      const db = await openDB()
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['notifications'], 'readwrite')
+        const store = tx.objectStore('notifications')
+        const req = store.add({ title: data.title, body: data.body || null, data: data.data || null, created_at: Date.now() })
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    } catch (e) {
+      console.log('SW: error saving notification locally', e)
+    }
+  })())
 })
 
 // Click en notificación

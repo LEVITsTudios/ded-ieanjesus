@@ -160,6 +160,12 @@ export function usePWA() {
         } catch (e) {
           console.error('Error persisting notification', e)
         }
+        // Save locally as well
+        try {
+          await addLocalNotification({ title, body: options?.body || null, data: options?.data || null })
+        } catch (e) {
+          console.error('Error saving local notification', e)
+        }
         return true
       }
     }
@@ -306,6 +312,9 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("sync_queue")) {
         db.createObjectStore("sync_queue", { keyPath: "id", autoIncrement: true })
       }
+      if (!db.objectStoreNames.contains("notifications")) {
+        db.createObjectStore("notifications", { keyPath: "id", autoIncrement: true })
+      }
     }
   })
 }
@@ -347,3 +356,26 @@ async function removePendingRequest(id: number): Promise<void> {
 }
 
 export { getPendingRequests, addPendingRequest, removePendingRequest }
+
+// Notifications helpers
+export async function addLocalNotification(notification: { title: string; body?: string; data?: any }) {
+  const db = await openDB()
+  return new Promise<number>((resolve, reject) => {
+    const transaction = db.transaction(["notifications"], "readwrite")
+    const store = transaction.objectStore("notifications")
+    const req = store.add({ title: notification.title, body: notification.body || null, data: notification.data || null, created_at: Date.now() })
+    req.onsuccess = () => resolve(req.result as number)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+export async function getLocalNotifications(): Promise<any[]> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["notifications"], "readonly")
+    const store = transaction.objectStore("notifications")
+    const req = store.getAll()
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
