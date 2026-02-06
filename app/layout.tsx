@@ -2,6 +2,7 @@ import React from "react"
 import type { Metadata, Viewport } from "next"
 import { Inter, Space_Grotesk } from "next/font/google"
 import "./globals.css"
+import PWAInitializer from '@/components/pwa/initializer'
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -60,6 +61,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         {children}
+        <PWAInitializer />
       </body>
     </html>
   )

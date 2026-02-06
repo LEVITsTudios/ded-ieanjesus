@@ -183,6 +183,18 @@ export function usePWA() {
         })
       }
 
+      // Persist subscription server-side
+      try {
+        const subJson = subscription.toJSON ? subscription.toJSON() : subscription
+        await fetch('/api/push-subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: subJson })
+        })
+      } catch (e) {
+        console.error('Error persisting push subscription', e)
+      }
+
       return subscription
     } catch (error) {
       console.error("Error suscribiéndose a push:", error)
