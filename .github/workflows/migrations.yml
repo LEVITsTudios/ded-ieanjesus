@@ -1,13 +1,10 @@
 name: Run Database Migrations
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - 'scripts/**.sql'
-      - '.github/workflows/migrations.yml'
-  workflow_dispatch:
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
