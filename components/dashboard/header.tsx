@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Bell, LogOut, User, Settings } from "lucide-react"
 import type { UserRole } from "@/lib/types"
+import { NavbarUser } from "@/components/navbar/user-menu"
 
 interface DashboardHeaderProps {
   user: {
@@ -70,49 +71,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
-            3
-          </span>
-        </Button>
-
-        {/* User Menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-3 px-2">
-              <Avatar className="h-8 w-8 border-2 border-primary/20">
-                <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-primary-foreground text-sm">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden flex-col items-start md:flex">
-                <span className="text-sm font-medium text-foreground">{user.fullName}</span>
-                <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${roleColors[user.role]}`}>
-                  {roleLabels[user.role]}
-                </Badge>
-              </div>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="mr-2 h-4 w-4" />
-              Perfil
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Settings className="mr-2 h-4 w-4" />
-              Configuracion
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut} disabled={loading} className="text-destructive">
-              <LogOut className="mr-2 h-4 w-4" />
-              {loading ? "Cerrando sesion..." : "Cerrar Sesion"}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <NavbarUser />
       </div>
     </header>
   )

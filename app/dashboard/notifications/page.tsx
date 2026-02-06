@@ -1,46 +1,10 @@
-"use client";
+'use client'
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
-  Bell,
-  BellRing,
-  Calendar,
-  BookOpen,
-  GraduationCap,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Megaphone,
-  Settings,
-  Trash2,
-  Eye,
-} from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
-
-interface Notification {
-  id: string;
-  type: string;
-  title: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-  action_url?: string;
-  data?: Record<string, unknown>;
-}
+import { useState, useEffect } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Bell, Trash2, CheckCircle2 } from 'lucide-react'
 
 interface Reminder {
   id: string;
