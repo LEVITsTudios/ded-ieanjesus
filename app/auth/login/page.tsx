@@ -58,6 +58,21 @@ export default function LoginPage() {
     checkBiometricSupport().then(setIsBiometricSupported);
   }, [checkBiometricSupport]);
 
+  // Auto-redirect if session exists
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          router.push('/dashboard');
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    checkSession();
+  }, [supabase, router]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);

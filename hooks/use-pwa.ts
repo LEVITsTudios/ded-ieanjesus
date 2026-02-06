@@ -150,6 +150,16 @@ export function usePWA() {
           badge: "/icon-192x192.png",
           ...options
         })
+        // Persist notification server-side
+        try {
+          await fetch('/api/notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body: options?.body || null, data: options?.data || null })
+          })
+        } catch (e) {
+          console.error('Error persisting notification', e)
+        }
         return true
       }
     }

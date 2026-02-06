@@ -133,6 +133,40 @@ export default function StudentFormPage() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const validateStep = (step: number) => {
+    // Step-specific validation
+    if (step === 1) {
+      // Require document number when document type is DNI
+      if (formData.documentType === "dni" && !formData.documentNumber.trim()) {
+        setError("El número de documento (DNI) es requerido en este paso.");
+        return false;
+      }
+      // Require date of birth
+      if (!formData.dateOfBirth) {
+        setError("La fecha de nacimiento es requerida.");
+        return false;
+      }
+    }
+
+    if (step === 2) {
+      // Emergency contact minimal validation: name and phone
+      if (!formData.emergencyContactName.trim() || !formData.emergencyContactPhone.trim()) {
+        setError("Por favor completa el contacto de emergencia (nombre y teléfono).");
+        return false;
+      }
+    }
+
+    // Clear error if validation passes
+    setError(null);
+    return true;
+  };
+
+  const goToNextStep = () => {
+    if (validateStep(currentStep)) {
+      setCurrentStep((prev) => Math.min(prev + 1, STEPS.length));
+    }
+  };
+
   const toggleArrayItem = (field: string, item: string) => {
     setFormData((prev) => {
       const currentArray = prev[field as keyof typeof prev] as string[];
@@ -1215,7 +1249,7 @@ export default function StudentFormPage() {
               {currentStep < STEPS.length ? (
                 <Button
                   type="button"
-                  onClick={() => setCurrentStep((prev) => prev + 1)}
+                  onClick={goToNextStep}
                 >
                   Siguiente
                   <ChevronRight className="ml-2 h-4 w-4" />

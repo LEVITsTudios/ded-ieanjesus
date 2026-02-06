@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,7 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
     fullName: "",
+    dni: "",
     phone: "",
     role: "student" as "student" | "teacher" | "parent" | "admin",
     adminCode: "",
@@ -53,6 +54,23 @@ export default function RegisterPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const supabase = createClient();
+  const [oauth, setOauth] = useState<string | null>(null);
+  const [oauthEmail, setOauthEmail] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const o = params.get("oauth");
+      const em = params.get("email") || "";
+      setOauth(o);
+      setOauthEmail(em);
+      if (o === "google" && em) {
+        setFormData((f) => ({ ...f, email: em }));
+      }
+    } catch (e) {
+      // ignore server-side
+    }
+  }, []);
 
   const validateForm = () => {
     if (!formData.fullName.trim()) {
@@ -94,6 +112,14 @@ export default function RegisterPage() {
       );
       return false;
     }
+    if (!formData.dni || !formData.dni.trim()) {
+      setError("El DNI / número de identificación es requerido");
+      return false;
+    }
+    if (!/^[0-9]{6,12}$/.test(formData.dni.trim())) {
+      setError("Por favor ingresa un DNI válido (solo números, 6-12 dígitos)");
+      return false;
+    }
     return true;
   };
 
@@ -106,6 +132,42 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      // If OAuth flow (Google), update profile instead of signUp
+      if (oauth === "google") {
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setError("No se encontró sesión OAuth. Por favor intenta iniciar sesión con Google nuevamente.");
+          setLoading(false);
+          return;
+        }
+
+        // Update profiles table
+        const { error: updateError } = await supabase.from('profiles').upsert({
+          id: user.id,
+          full_name: formData.fullName,
+          phone: formData.phone,
+          dni: formData.dni,
+          role: formData.role
+        });
+
+        if (updateError) {
+          setError(updateError.message);
+          setLoading(false);
+          return;
+        }
+
+        // If student, let them continue to student form
+        if (formData.role === 'student') {
+          // ensure redirect to student form
+          window.location.href = '/dashboard/profile/student-form';
+          return;
+        }
+
+        setSuccess(true);
+        setLoading(false);
+        return;
+      }
       // Si es admin, verificar el código de invitación
       if (formData.role === "admin") {
         const { data: codeData, error: codeError } = await supabase
@@ -143,6 +205,7 @@ export default function RegisterPage() {
           data: {
             full_name: formData.fullName,
             phone: formData.phone,
+            dni: formData.dni,
             role: formData.role,
           },
         },
@@ -339,6 +402,24 @@ export default function RegisterPage() {
                     value={formData.fullName}
                     onChange={(e) =>
                       setFormData({ ...formData, fullName: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* DNI / Número de Identificación */}
+              <div className="space-y-2">
+                <Label htmlFor="dni">DNI / Número de Identificación</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="dni"
+                    placeholder="12345678"
+                    className="pl-10"
+                    value={formData.dni}
+                    onChange={(e) =>
+                      setFormData({ ...formData, dni: e.target.value })
                     }
                     required
                   />

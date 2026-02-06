@@ -23,6 +23,14 @@ export async function GET(request: Request) {
           .eq("id", user.id)
           .single();
 
+        // Si no hay perfil, redirigir a register para elegir rol (OAuth flow)
+        if (!profile) {
+          const email = user.email || ""
+          return NextResponse.redirect(`${origin}/auth/register?oauth=google&email=${encodeURIComponent(
+            email
+          )}`)
+        }
+
         // Si es estudiante y no tiene ficha estudiantil, redirigir
         if (profile?.role === "student") {
           const { data: studentProfile } = await supabase
