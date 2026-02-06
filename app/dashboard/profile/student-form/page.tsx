@@ -49,10 +49,15 @@ const STEPS = [
   { id: 5, title: "Habilidades y Talentos", icon: Star },
 ];
 
+interface FieldError {
+  [key: string]: string;
+}
+
 export default function StudentFormPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldError>({});
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
@@ -131,33 +136,173 @@ export default function StudentFormPage() {
 
   const updateFormData = (field: string, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+    // Limpia error del campo cuando el usuario empieza a escribir
+    setFieldErrors((prev) => {
+      const newErrors = { ...prev };
+      delete newErrors[field];
+      return newErrors;
+    });
+    // Validar el campo en tiempo real
+    validateField(field, value);
+  };
+
+  const validateField = (field: string, value: unknown) => {
+    let errorMsg = "";
+
+    // Validaciones por campo específico
+    if (field === "dateOfBirth") {
+      const dateValue = value as string;
+      if (dateValue) {
+        const age = new Date().getFullYear() - new Date(dateValue).getFullYear();
+        if (age < 5) {
+          errorMsg = "La edad debe ser al menos 5 años";
+        } else if (age > 100) {
+          errorMsg = "Por favor verifica la fecha de nacimiento";
+        }
+      }
+    }
+
+    if (field === "documentNumber") {
+      const docNum = (value as string).trim();
+      if (formData.documentType === "dni" && docNum) {
+        if (!/^\d{10}$/.test(docNum)) {
+          errorMsg = "El DNI debe contener exactamente 10 dígitos";
+        }
+      }
+    }
+
+    if (field === "emergencyContactPhone") {
+      const phone = (value as string).trim();
+      if (phone) {
+        // Validar formato ecuatoriano +593 XXXXXXXXXX
+        if (!/^\+593\s?\d{9,10}$/.test(phone.replace(/\s+/g, ""))) {
+          errorMsg = "Formato de teléfono inválido. Ej: +593 123456789";
+        }
+      }
+    }
+
+    if (field === "emergencyContactEmail") {
+      const email = (value as string).trim();
+      if (email) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          errorMsg = "Formato de correo electrónico inválido";
+        }
+      }
+    }
+
+    if (field === "secondaryContactPhone") {
+      const phone = (value as string).trim();
+      if (phone) {
+        if (!/^\+593\s?\d{9,10}$/.test(phone.replace(/\s+/g, ""))) {
+          errorMsg = "Formato de teléfono inválido. Ej: +593 123456789";
+        }
+      }
+    }
+
+    if (field === "address") {
+      const addr = (value as string).trim();
+      if (addr && addr.length < 10) {
+        errorMsg = "La dirección debe tener al menos 10 caracteres";
+      }
+    }
+
+    if (field === "city") {
+      const city = (value as string).trim();
+      if (city && city.length < 2) {
+        errorMsg = "El nombre de la ciudad es muy corto";
+      }
+    }
+
+    if (field === "specialAssistanceDetails") {
+      const details = (value as string).trim();
+      if (formData.requiresSpecialAssistance && !details) {
+        errorMsg = "Por favor describe el tipo de asistencia requerida";
+      }
+    }
+
+    if (field === "therapistContact") {
+      const contact = (value as string).trim();
+      if (formData.hasTherapist === "yes" && !contact) {
+        errorMsg = "Por favor proporciona contacto del terapeuta";
+      }
+    }
+
+    // Actualizar fieldErrors
+    setFieldErrors((prev) => {
+      if (errorMsg) {
+        return { ...prev, [field]: errorMsg };
+      } else {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      }
+    });
   };
 
   const validateStep = (step: number) => {
-    // Step-specific validation
+    let stepErrors: FieldError = {};
+
     if (step === 1) {
-      // Require document number when document type is DNI
-      if (formData.documentType === "dni" && !formData.documentNumber.trim()) {
-        setError("El número de documento (DNI) es requerido en este paso.");
-        return false;
-      }
-      // Require date of birth
+      // Validación fecha nacimiento
       if (!formData.dateOfBirth) {
-        setError("La fecha de nacimiento es requerida.");
-        return false;
+        stepErrors.dateOfBirth = "La fecha de nacimiento es requerida";
+      } else {
+        const age = new Date().getFullYear() - new Date(formData.dateOfBirth).getFullYear();
+        if (age < 5 || age > 100) {
+          stepErrors.dateOfBirth = "Por favor verifica la fecha de nacimiento";
+        }
+      }
+
+      // Validación tipo documento
+      if (!formData.documentType) {
+        stepErrors.documentType = "Selecciona un tipo de documento";
+      }
+
+      // Validación número documento
+      if (formData.documentType === "dni") {
+        if (!formData.documentNumber.trim()) {
+          stepErrors.documentNumber = "El número de DNI es requerido";
+        } else if (!/^\d{10}$/.test(formData.documentNumber.trim())) {
+          stepErrors.documentNumber = "El DNI debe contener exactamente 10 dígitos";
+        }
+      }
+
+      // Validación dirección
+      if (formData.address.trim() && formData.address.trim().length < 10) {
+        stepErrors.address = "La dirección debe tener al menos 10 caracteres";
       }
     }
 
     if (step === 2) {
-      // Emergency contact minimal validation: name and phone
-      if (!formData.emergencyContactName.trim() || !formData.emergencyContactPhone.trim()) {
-        setError("Por favor completa el contacto de emergencia (nombre y teléfono).");
-        return false;
+      // Validación nombre contacto emergencia
+      if (!formData.emergencyContactName.trim()) {
+        stepErrors.emergencyContactName = "El nombre del contacto de emergencia es requerido";
+      } else if (formData.emergencyContactName.trim().length < 3) {
+        stepErrors.emergencyContactName = "El nombre debe tener al menos 3 caracteres";
       }
+
+      // Validación teléfono contacto emergencia
+      if (!formData.emergencyContactPhone.trim()) {
+        stepErrors.emergencyContactPhone = "El teléfono de emergencia es requerido";
+      } else if (!/^\+593\s?\d{9,10}$/.test(formData.emergencyContactPhone.replace(/\s+/g, ""))) {
+        stepErrors.emergencyContactPhone = "Formato: +593 123456789 o +593123456789";
+      }
+
+      // Validación relación
+      if (!formData.emergencyContactRelation) {
+        stepErrors.emergencyContactRelation = "Especifica el parentesco";
+      }
+    }
+
+    if (Object.keys(stepErrors).length > 0) {
+      setFieldErrors(stepErrors);
+      setError(`Por favor corrige ${Object.keys(stepErrors).length} campo(s) antes de continuar.`);
+      return false;
     }
 
     // Clear error if validation passes
     setError(null);
+    setFieldErrors({});
     return true;
   };
 
@@ -181,8 +326,22 @@ export default function StudentFormPage() {
     if (!userId) return;
     setLoading(true);
     setError(null);
+    setFieldErrors({});
 
     try {
+      // Validación final antes de enviar
+      let finalErrors: FieldError = {};
+      if (!formData.dateOfBirth) finalErrors.dateOfBirth = "Requerido";
+      if (!formData.emergencyContactName.trim()) finalErrors.emergencyContactName = "Requerido";
+      if (!formData.emergencyContactPhone.trim()) finalErrors.emergencyContactPhone = "Requerido";
+
+      if (Object.keys(finalErrors).length > 0) {
+        setFieldErrors(finalErrors);
+        setError("Por favor completa todos los campos requeridos antes de guardar");
+        setLoading(false);
+        return;
+      }
+
       // Guardar perfil estudiantil
       const { error: profileError } = await supabase
         .from("student_profiles")
@@ -219,7 +378,12 @@ export default function StudentFormPage() {
           vaccines_up_to_date: formData.vaccinesUpToDate === "yes",
         });
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error("Error en student_profiles:", profileError);
+        setError(`Error al guardar perfil: ${profileError.message || "Error desconocido"}`);
+        setLoading(false);
+        return;
+      }
 
       // Guardar encuesta
       const { error: surveyError } = await supabase
@@ -259,14 +423,19 @@ export default function StudentFormPage() {
             formData.extracurricularActivities || null,
         });
 
-      if (surveyError) throw surveyError;
+      if (surveyError) {
+        console.error("Error en student_surveys:", surveyError);
+        setError(`Error al guardar encuesta: ${surveyError.message || "Error desconocido"}`);
+        setLoading(false);
+        return;
+      }
 
+      // Si todo fue exitoso
       router.push("/dashboard");
     } catch (err) {
-      console.error(err);
-      setError(
-        "Ocurrió un error al guardar tu información. Por favor intenta de nuevo."
-      );
+      console.error("Error al guardar:", err);
+      const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+      setError(`Error: ${errorMessage}. Por favor intenta de nuevo.`);
     } finally {
       setLoading(false);
     }
@@ -281,19 +450,25 @@ export default function StudentFormPage() {
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
+                <Label htmlFor="dateOfBirth">Fecha de Nacimiento <span className="text-destructive">*</span></Label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="dateOfBirth"
                     type="date"
-                    className="pl-10"
+                    className={`pl-10 ${fieldErrors.dateOfBirth ? "border-destructive focus:ring-destructive" : ""}`}
                     value={formData.dateOfBirth}
                     onChange={(e) =>
                       updateFormData("dateOfBirth", e.target.value)
                     }
                   />
                 </div>
+                {fieldErrors.dateOfBirth && (
+                  <p className="text-sm text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {fieldErrors.dateOfBirth}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -330,12 +505,12 @@ export default function StudentFormPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Tipo de Documento</Label>
+                <Label>Tipo de Documento <span className="text-destructive">*</span></Label>
                 <Select
                   value={formData.documentType}
                   onValueChange={(v) => updateFormData("documentType", v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className={fieldErrors.documentType ? "border-destructive" : ""}>
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
                   <SelectContent>
@@ -345,18 +520,31 @@ export default function StudentFormPage() {
                     <SelectItem value="other">Otro</SelectItem>
                   </SelectContent>
                 </Select>
+                {fieldErrors.documentType && (
+                  <p className="text-sm text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {fieldErrors.documentType}
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Número de Documento</Label>
+              <Label>Número de Documento {formData.documentType === "dni" && <span className="text-destructive">*</span>}</Label>
               <Input
                 placeholder="Número de identificación"
+                className={`${fieldErrors.documentNumber ? "border-destructive focus:ring-destructive" : ""}`}
                 value={formData.documentNumber}
                 onChange={(e) =>
                   updateFormData("documentNumber", e.target.value)
                 }
               />
+              {fieldErrors.documentNumber && (
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {fieldErrors.documentNumber}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -365,11 +553,17 @@ export default function StudentFormPage() {
                 <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Textarea
                   placeholder="Calle, número, colonia"
-                  className="pl-10 min-h-[80px]"
+                  className={`pl-10 min-h-[80px] ${fieldErrors.address ? "border-destructive focus:ring-destructive" : ""}`}
                   value={formData.address}
                   onChange={(e) => updateFormData("address", e.target.value)}
                 />
               </div>
+              {fieldErrors.address && (
+                <p className="text-sm text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {fieldErrors.address}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -415,24 +609,31 @@ export default function StudentFormPage() {
               <h3 className="font-medium">Contacto Principal de Emergencia</h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Nombre Completo</Label>
+                  <Label>Nombre Completo <span className="text-destructive">*</span></Label>
                   <Input
                     placeholder="Nombre del contacto"
+                    className={fieldErrors.emergencyContactName ? "border-destructive focus:ring-destructive" : ""}
                     value={formData.emergencyContactName}
                     onChange={(e) =>
                       updateFormData("emergencyContactName", e.target.value)
                     }
                   />
+                  {fieldErrors.emergencyContactName && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.emergencyContactName}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Parentesco</Label>
+                  <Label>Parentesco <span className="text-destructive">*</span></Label>
                   <Select
                     value={formData.emergencyContactRelation}
                     onValueChange={(v) =>
                       updateFormData("emergencyContactRelation", v)
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className={fieldErrors.emergencyContactRelation ? "border-destructive" : ""}>
                       <SelectValue placeholder="Seleccionar" />
                     </SelectTrigger>
                     <SelectContent>
@@ -445,31 +646,52 @@ export default function StudentFormPage() {
                       <SelectItem value="other">Otro</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.emergencyContactRelation && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.emergencyContactRelation}
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Teléfono</Label>
+                  <Label>Teléfono <span className="text-destructive">*</span></Label>
                   <Input
                     type="tel"
                     placeholder="+593 123 456 7890"
+                    className={fieldErrors.emergencyContactPhone ? "border-destructive focus:ring-destructive" : ""}
                     value={formData.emergencyContactPhone}
                     onChange={(e) =>
                       updateFormData("emergencyContactPhone", e.target.value)
                     }
                   />
+                  {fieldErrors.emergencyContactPhone && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.emergencyContactPhone}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">Formato: +593 987654321</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Correo Electrónico</Label>
                   <Input
                     type="email"
                     placeholder="correo@ejemplo.com"
+                    className={fieldErrors.emergencyContactEmail ? "border-destructive focus:ring-destructive" : ""}
                     value={formData.emergencyContactEmail}
                     onChange={(e) =>
                       updateFormData("emergencyContactEmail", e.target.value)
                     }
                   />
+                  {fieldErrors.emergencyContactEmail && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.emergencyContactEmail}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -492,11 +714,18 @@ export default function StudentFormPage() {
                   <Input
                     type="tel"
                     placeholder="+593 123 456 7890"
+                    className={fieldErrors.secondaryContactPhone ? "border-destructive focus:ring-destructive" : ""}
                     value={formData.secondaryContactPhone}
                     onChange={(e) =>
                       updateFormData("secondaryContactPhone", e.target.value)
                     }
                   />
+                  {fieldErrors.secondaryContactPhone && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {fieldErrors.secondaryContactPhone}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
