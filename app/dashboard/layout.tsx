@@ -1,6 +1,7 @@
 import React from "react"
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
+import { checkProfileCompletion } from "@/lib/profile-completion"
 import { DashboardSidebar } from "@/components/dashboard/sidebar"
 import { DashboardHeader } from "@/components/dashboard/header"
 import { MobileNavigation } from "@/components/mobile/navigation"
@@ -18,6 +19,12 @@ export default async function DashboardLayout({
 
   if (!user) {
     redirect("/auth/login")
+  }
+
+  // Verificar que el perfil está completo
+  const completionStatus = await checkProfileCompletion(supabase, user.id)
+  if (!completionStatus.isComplete) {
+    redirect("/onboarding")
   }
 
   const userRole = user.user_metadata?.role || "student"

@@ -132,6 +132,38 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      // Verificar unicidad de identificadores (DNI y teléfono)
+      // Si el usuario ya está autenticado (OAuth), excluir su propio id de la búsqueda
+      let currentUserId: string | null = null;
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData?.user) currentUserId = userData.user.id;
+      } catch (e) {
+        // ignore - no session
+      }
+
+      if (formData.dni) {
+        let query = supabase.from("profiles").select("id").eq("dni", formData.dni).limit(1);
+        if (currentUserId) query = query.neq("id", currentUserId);
+        const { data: existingDni } = await query;
+        if (existingDni && existingDni.length > 0) {
+          setError("El DNI ingresado ya está asociado a otra cuenta");
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (formData.phone) {
+        const normalizedPhone = formData.phone.trim();
+        let phoneQuery = supabase.from("profiles").select("id").eq("phone", normalizedPhone).limit(1);
+        if (currentUserId) phoneQuery = phoneQuery.neq("id", currentUserId);
+        const { data: existingPhone } = await phoneQuery;
+        if (existingPhone && existingPhone.length > 0) {
+          setError("El número de teléfono ya está en uso por otra cuenta");
+          setLoading(false);
+          return;
+        }
+      }
       // If OAuth flow (Google), update profile instead of signUp
       if (oauth === "google") {
         // Get current user

@@ -458,15 +458,15 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Contraseña</Label>
-                  <Link href="/auth/forgot-password">
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="px-0 h-auto text-xs"
-                    >
+                  <Button
+                    asChild
+                    variant="link"
+                    className="px-0 h-auto text-xs"
+                  >
+                    <Link href="/auth/forgot-password">
                       ¿Olvidaste tu contraseña?
-                    </Button>
-                  </Link>
+                    </Link>
+                  </Button>
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

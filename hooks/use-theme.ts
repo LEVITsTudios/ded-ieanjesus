@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 export type Theme = 'light' | 'dark' | 'system'
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>('system')
+  // Inicializar con un valor que no cause hidratación incorrecta
+  const [theme, setTheme] = useState<Theme | undefined>(undefined)
   const [mounted, setMounted] = useState(false)
 
-  // Cargar tema al iniciar
+  // Cargar tema al iniciar (solo cliente)
   useEffect(() => {
     const stored = localStorage.getItem('theme') as Theme | null
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches

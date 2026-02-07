@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { email, full_name, role, phone, dni } = body
+    const { email, full_name, role, phone } = body
 
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -39,12 +39,28 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     if (user.user_metadata?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    const { data, error } = await supabase.from('profiles').insert([{ email, full_name, role, phone, dni }])
+    if (!email || !full_name) {
+      return NextResponse.json({ error: 'Email and full_name are required' }, { status: 400 })
+    }
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Only insert into profiles table (DNI is stored in student_profiles, not profiles)
+    const { data, error } = await supabase.from('profiles').insert([
+      {
+        email,
+        full_name,
+        role: role || 'student',
+        phone: phone || null,
+      }
+    ]).select()
 
-    return NextResponse.json({ user: data?.[0] })
-  } catch (e) {
+    if (error) {
+      console.error('Error creating user profile:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ user: data?.[0] }, { status: 201 })
+  } catch (e: any) {
+    console.error('Error in POST /api/users:', e)
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 }

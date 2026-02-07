@@ -26,6 +26,17 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { name, description, code, teacher_id } = body
 
+    // Validate required fields
+    if (!name || !code || !teacher_id) {
+      return NextResponse.json({ error: 'Missing required fields: name, code, teacher_id' }, { status: 400 })
+    }
+
+    // Validate teacher_id is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(teacher_id)) {
+      return NextResponse.json({ error: 'Invalid teacher_id format' }, { status: 400 })
+    }
+
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -39,7 +50,7 @@ export async function POST(request: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json({ course: data?.[0] })
+    return NextResponse.json({ course: data?.[0] }, { status: 201 })
   } catch (e) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }

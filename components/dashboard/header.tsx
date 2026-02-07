@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { Bell, LogOut, User, Settings, Search } from "lucide-react"
+import { LogOut, User, Settings, Search } from "lucide-react"
 import type { UserRole } from "@/lib/types"
 import { NavbarUser } from "@/components/navbar/user-menu"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -75,11 +75,6 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
 
       <div className="flex items-center gap-3">
         <ThemeToggle />
-
-        <Button variant="ghost" size="icon" aria-label="Notificaciones" onClick={() => router.push('/dashboard/notifications')}>
-          <Bell className="h-5 w-5" />
-        </Button>
-
         <NavbarUser />
       </div>
     </header>

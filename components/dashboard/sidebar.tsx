@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { APP_NAME } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -174,7 +175,7 @@ export function DashboardSidebar({ userRole }: DashboardSidebarProps) {
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent shadow-lg">
                 <GraduationCap className="h-5 w-5 text-primary-foreground" />
               </div>
-              <span className="text-lg font-bold text-foreground">LVTsAcademic</span>
+              <span className="text-lg font-bold text-foreground" suppressHydrationWarning>{APP_NAME}</span>
             </div>
             <button
               onClick={() => setMobileOpen(false)}
@@ -243,7 +244,7 @@ export function DashboardSidebar({ userRole }: DashboardSidebarProps) {
             <GraduationCap className="h-5 w-5 text-primary-foreground" />
           </div>
           {!collapsed && (
-            <span className="text-lg font-bold text-foreground">LVTsAcademic</span>
+            <span className="text-lg font-bold text-foreground" suppressHydrationWarning>{APP_NAME}</span>
           )}
         </div>
 

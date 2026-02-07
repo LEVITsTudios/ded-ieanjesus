@@ -49,7 +49,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <link rel="icon" href="/icon-192x192.png" />
@@ -59,27 +59,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="LVTsAcademic" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#3b82f6" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function () {
-  try {
-    var stored = localStorage.getItem('theme');
-    var theme = stored || 'system';
-    var prefersDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var isDark = theme === 'dark' || (theme === 'system' && prefersDark);
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      try { document.documentElement.style.colorScheme = 'dark'; } catch(e) {}
-    } else {
-      document.documentElement.classList.remove('dark');
-      try { document.documentElement.style.colorScheme = 'light'; } catch(e) {}
-    }
-  } catch (e) {}
-})();`,
-          }}
-        />
-      </head>"
-      <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
+      </head>
+      <body 
+        className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}
+        suppressHydrationWarning
+      >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           {children}
         </ThemeProvider>

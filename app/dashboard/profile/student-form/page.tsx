@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { mapGender, mapDocumentType, mapLearningStyle, mapDisabilities, normalizePhone } from "@/lib/db-mappers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,8 @@ export default function StudentFormPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
+  
+    // Use centralized mappers to normalize values before DB writes
 
   // Form data
   const [formData, setFormData] = useState({
@@ -342,86 +345,137 @@ export default function StudentFormPage() {
         return;
       }
 
-      // Guardar perfil estudiantil
-      const { error: profileError } = await supabase
-        .from("student_profiles")
-        .upsert({
-          user_id: userId,
-          date_of_birth: formData.dateOfBirth || null,
-          gender: formData.gender || null,
-          nationality: formData.nationality || null,
-          document_type: formData.documentType || null,
-          document_number: formData.documentNumber || null,
-          address: formData.address || null,
-          city: formData.city || null,
-          state: formData.state || null,
-          postal_code: formData.postalCode || null,
-          emergency_contact_name: formData.emergencyContactName || null,
-          emergency_contact_relation: formData.emergencyContactRelation || null,
-          emergency_contact_phone: formData.emergencyContactPhone || null,
-          emergency_contact_email: formData.emergencyContactEmail || null,
-          secondary_contact_name: formData.secondaryContactName || null,
-          secondary_contact_phone: formData.secondaryContactPhone || null,
-          blood_type: formData.bloodType || null,
-          allergies: formData.allergies.length > 0 ? formData.allergies : null,
-          chronic_conditions:
-            formData.chronicConditions.length > 0
-              ? formData.chronicConditions
-              : null,
-          current_medications: formData.medications || null,
-          disabilities:
-            formData.disabilities.length > 0 ? formData.disabilities : null,
-          requires_special_assistance: formData.requiresSpecialAssistance,
-          special_assistance_details:
-            formData.specialAssistanceDetails || null,
-          last_medical_checkup: formData.lastMedicalCheckup || null,
-          vaccines_up_to_date: formData.vaccinesUpToDate === "yes",
-        });
+      // Verificaciones de unicidad para identificadores críticos (DNI)
+      if (formData.documentType === "dni" && formData.documentNumber.trim()) {
+        try {
+          // Verificar contra `profiles.dni`
+          const { data: existingProfileDni } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("dni", formData.documentNumber.trim())
+            .neq("id", userId)
+            .limit(1);
+          if (existingProfileDni && existingProfileDni.length > 0) {
+            setError("El DNI ingresado ya está asociado a otra cuenta.");
+            setLoading(false);
+            return;
+          }
 
-      if (profileError) {
-        console.error("Error en student_profiles:", profileError);
-        setError(`Error al guardar perfil: ${profileError.message || "Error desconocido"}`);
+          // Verificar contra student_profiles.document_number
+          const { data: existingStudentDoc } = await supabase
+            .from("student_profiles")
+            .select("id")
+            .eq("document_number", formData.documentNumber.trim())
+            .neq("user_id", userId)
+            .limit(1);
+          if (existingStudentDoc && existingStudentDoc.length > 0) {
+            setError("El número de documento ya está en uso por otra ficha estudiantil.");
+            setLoading(false);
+            return;
+          }
+        } catch (dupErr) {
+          console.error("Error verificando duplicados:", dupErr);
+          setError("Error verificando unicidad de identificadores. Intenta nuevamente.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Actualizar datos básicos en la tabla `profiles` (contiene address y date_of_birth)
+      const { error: profileUpdateError } = await supabase
+        .from("profiles")
+        .update({
+          date_of_birth: formData.dateOfBirth || null,
+          address: formData.address || null,
+        })
+        .eq("id", userId);
+
+      if (profileUpdateError) {
+        console.error("Error actualizando profiles:", profileUpdateError);
+        // Detectar violación de constraint único (duplicados)
+        const msg = profileUpdateError.message || "Error desconocido";
+        if (profileUpdateError.code === "23505" || /duplicate key value/i.test(msg)) {
+          setError("Los datos ingresados (DNI/teléfono) ya están en uso por otra cuenta.");
+        } else {
+          setError(`Error al guardar datos básicos: ${msg}`);
+        }
         setLoading(false);
         return;
       }
 
-      // Guardar encuesta
-      const { error: surveyError } = await supabase
-        .from("student_surveys")
+      // Upsert en student_profiles SOLO con columnas existentes en el esquema
+      // Map values to DB-allowed tokens before saving
+      const dbGender = mapGender(formData.gender as string);
+      const dbDocumentType = mapDocumentType(formData.documentType as string);
+      const dbDisabilities = formData.disabilities.length > 0 ? mapDisabilities(formData.disabilities) : null;
+      const dbLearningStyle = mapLearningStyle(formData.learningStyle as string);
+
+      const { data: spData, error: spError } = await supabase
+        .from("student_profiles")
         .upsert({
           user_id: userId,
-          physical_activity_level: formData.physicalActivityLevel || null,
-          mental_health_conditions:
-            formData.mentalHealthConditions.length > 0
-              ? formData.mentalHealthConditions
-              : null,
-          has_therapist: formData.hasTherapist === "yes",
-          therapist_contact: formData.therapistContact || null,
-          stress_level: formData.stressLevel || null,
-          sleep_quality: formData.sleepQuality || null,
-          emotional_support: formData.emotionalSupport || null,
-          academic_strengths:
-            formData.academicStrengths.length > 0
-              ? formData.academicStrengths
-              : null,
-          learning_style: formData.learningStyle || null,
-          artistic_talents:
-            formData.artisticTalents.length > 0
-              ? formData.artisticTalents
-              : null,
-          sports_talents:
-            formData.sportsTalents.length > 0 ? formData.sportsTalents : null,
-          languages: formData.languages.length > 0 ? formData.languages : null,
-          technical_skills:
-            formData.technicalSkills.length > 0
-              ? formData.technicalSkills
-              : null,
-          hobbies: formData.hobbies || null,
-          career_interests: formData.careerInterests || null,
-          special_achievements: formData.specialAchievements || null,
-          extracurricular_activities:
-            formData.extracurricularActivities || null,
-        });
+          document_type: dbDocumentType || null,
+          document_number: formData.documentNumber || null,
+          nationality: formData.nationality || null,
+          place_of_birth: formData.city || null,
+          gender: dbGender || null,
+          blood_type: formData.bloodType || null,
+          emergency_contact_name: formData.emergencyContactName || null,
+          emergency_contact_phone: formData.emergencyContactPhone || null,
+          emergency_contact_relationship: formData.emergencyContactRelation || null,
+          emergency_contact_email: formData.emergencyContactEmail || null,
+          secondary_contact_name: formData.secondaryContactName || null,
+          secondary_contact_phone: formData.secondaryContactPhone || null,
+          city: formData.city || null,
+          state: formData.state || null,
+          postal_code: formData.postalCode || null,
+        })
+        .select("id")
+        .limit(1);
+
+      if (spError) {
+        console.error("Error en student_profiles:", spError);
+        setError(`Error al guardar ficha: ${spError.message || "Error desconocido"}`);
+        setLoading(false);
+        return;
+      }
+
+      const studentProfileId = Array.isArray(spData) ? spData[0]?.id : spData?.id;
+
+      // Guardar encuesta en student_surveys usando student_profile_id
+      const surveyPayload: any = {
+        student_profile_id: studentProfileId,
+        current_medications: formData.medications || null,
+        mental_health_details: formData.mentalHealthOther || null,
+        requires_special_attention: formData.requiresSpecialAssistance || false,
+        special_attention_details: formData.specialAssistanceDetails || null,
+        allergies_details: formData.allergiesOther || null,
+        allergies: formData.allergies.length > 0 ? formData.allergies : null,
+        chronic_illness_details: formData.chronicConditionsOther || null,
+        chronic_conditions: formData.chronicConditions.length > 0 ? formData.chronicConditions : null,
+        disabilities: dbDisabilities || null,
+        primary_learning_style: dbLearningStyle || null,
+        academic_strengths: formData.academicStrengths.length > 0 ? formData.academicStrengths : null,
+        languages_spoken: formData.languages.length > 0 ? formData.languages : null,
+        special_talents: formData.specialAchievements || null,
+        artistic_talents: formData.artisticTalents.length > 0 ? formData.artisticTalents : null,
+        extracurricular_interests: formData.sportsTalents.length > 0 ? formData.sportsTalents : formData.extracurricularActivities || null,
+        technical_skills: formData.technicalSkills.length > 0 ? formData.technicalSkills : null,
+        hobbies: formData.hobbies || null,
+        last_medical_checkup: formData.lastMedicalCheckup || null,
+        vaccines_up_to_date: formData.vaccinesUpToDate === "yes" || null,
+        physical_activity_level: formData.physicalActivityLevel || null,
+        mental_health_conditions: formData.mentalHealthConditions.length > 0 ? formData.mentalHealthConditions : null,
+        stress_level: formData.stressLevel || null,
+        sleep_quality: formData.sleepQuality || null,
+        emotional_support: formData.emotionalSupport || null,
+        career_interests: formData.careerInterests || null,
+        survey_completed_at: new Date().toISOString(),
+      };
+
+      const { error: surveyError } = await supabase
+        .from("student_surveys")
+        .upsert(surveyPayload);
 
       if (surveyError) {
         console.error("Error en student_surveys:", surveyError);
@@ -552,6 +606,7 @@ export default function StudentFormPage() {
               <div className="relative">
                 <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Textarea
+                  required
                   placeholder="Calle, número, colonia"
                   className={`pl-10 min-h-[80px] ${fieldErrors.address ? "border-destructive focus:ring-destructive" : ""}`}
                   value={formData.address}

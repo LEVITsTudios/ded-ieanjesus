@@ -4,6 +4,18 @@
  */
 
 export const ECUADOR_PHONE_PREFIX = '+593'
+export const ECUADOR_COUNTRY_CODE = '+593'
+export const ECUADOR_AREA_CODES: { [key: string]: string } = {
+  '2': 'Pichincha/Tungurahua',
+  '3': 'Chimborazo/Cotopaxi',
+  '4': 'Manabí/Santo Domingo',
+  '5': 'Guayas/Santa Elena',
+  '6': 'El Oro/Azuay',
+  '7': 'Loja/Zamora/Morona Santiago',
+  '8': 'Sucumbíos/Imbabura/Carchi',
+  '9': 'Esmeraldas',
+}
+
 export const ECUADOR_PROVINCES = [
   'Azuay', 'Bolívar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas',
   'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago',
@@ -14,29 +26,37 @@ export const ECUADOR_PROVINCES = [
 /**
  * Validar cédula ecuatoriana (10 dígitos)
  * RUC también válido (13 dígitos)
+ * El primer dígito identifica la provincia (01-24)
  */
 export function validateEcuadorianDNI(dni: string): { valid: boolean; message: string } {
   const cleaned = dni.replace(/\D/g, '')
   
-  // Cédula: 10 dígitos
   if (cleaned.length === 10) {
     return validateCedula(cleaned)
   }
   
-  // RUC: 13 dígitos
   if (cleaned.length === 13) {
-    return { valid: true, message: 'RUC válido' }
+    const lastThreeDigits = cleaned.slice(-3)
+    if (lastThreeDigits === '001') {
+      return { valid: true, message: 'RUC válido' }
+    }
+    return { valid: false, message: 'RUC debe terminar en 001' }
   }
   
-  return { valid: false, message: 'Cédula/RUC debe tener 10 o 13 dígitos' }
+  return { valid: false, message: 'Cédula debe tener 10 dígitos o RUC 13 dígitos' }
 }
 
 /**
- * Validar cédula con algoritmo de check digit
+ * Validar cédula con algoritmo de check digit (módulo 11)
  */
 function validateCedula(cedula: string): { valid: boolean; message: string } {
   if (!/^\d{10}$/.test(cedula)) {
-    return { valid: false, message: 'Cédula debe contener 10 dígitos' }
+    return { valid: false, message: 'Cédula debe contener exactamente 10 dígitos' }
+  }
+
+  const provinceCode = parseInt(cedula.substring(0, 2))
+  if (provinceCode < 1 || provinceCode > 24) {
+    return { valid: false, message: 'Provincia inválida (dígitos 1-2)' }
   }
 
   const digits = cedula.split('').map(Number)
@@ -60,39 +80,120 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
 
 /**
  * Validar teléfono ecuatoriano
- * Formato: +593 9XXXXXXXXX (móvil) o +593 2XXXXXXXXX (fijo)
+ * Formatos aceptados: +593 9 XXXXXXXX, +593 2-7 XXXXXXX, etc.
  */
 export function validateEcuadorianPhone(phone: string): { valid: boolean; message: string; formatted?: string } {
-  const cleaned = phone.replace(/\D/g, '')
+  const cleaned = phone.replace(/[\s\-()]/g, '')
   
-  // Debe ser 10 dígitos (sin el +593)
-  if (cleaned.length === 10) {
-    const formatted = `${ECUADOR_PHONE_PREFIX} ${cleaned}`
-    
-    // Validar que comience con 9 (móvil) o 2-7 (fijo)
-    const firstDigit = cleaned[0]
-    if (!['2', '3', '4', '5', '6', '7', '9'].includes(firstDigit)) {
-      return { valid: false, message: 'Número de teléfono no válido para Ecuador' }
-    }
-    
-    return { 
-      valid: true, 
-      message: 'Teléfono válido',
-      formatted 
-    }
-  }
+  let withoutPrefix = ''
   
-  // Si vino con +593
-  if (cleaned.length === 12 && cleaned.startsWith('593')) {
-    const lastTenDigits = cleaned.slice(3)
-    return validateEcuadorianPhone(lastTenDigits)
+  if (cleaned.startsWith('+593')) {
+    withoutPrefix = cleaned.slice(4)
+  } else if (cleaned.startsWith('0593')) {
+    withoutPrefix = cleaned.slice(4)
+  } else if (cleaned.startsWith('593')) {
+    withoutPrefix = cleaned.slice(3)
+  } else {
+    withoutPrefix = cleaned
   }
 
-  return { valid: false, message: 'Teléfono debe tener 10 dígitos (sin el prefijo)' }
+  if (withoutPrefix.length === 9 || withoutPrefix.length === 8) {
+    const firstDigit = withoutPrefix[0]
+    if (['2', '3', '4', '5', '6', '7', '9'].includes(firstDigit)) {
+      const formatted = `${ECUADOR_PHONE_PREFIX} ${withoutPrefix}`
+      return {
+        valid: true,
+        message: 'Teléfono válido',
+        formatted
+      }
+    }
+  }
+
+  return { valid: false, message: 'Teléfono no válido para Ecuador' }
 }
 
 /**
- * Validar email (seguro contra inyecciones)
+ * Validar fecha de nacimiento
+ */
+export function validateDateOfBirth(dateStr: string, minAge: number = 5): { valid: boolean; message: string; age?: number } {
+  if (!dateStr) {
+    return { valid: false, message: 'La fecha de nacimiento es requerida' }
+  }
+
+  const birthDate = new Date(dateStr)
+  const today = new Date()
+
+  if (birthDate > today) {
+    return { valid: false, message: 'La fecha no puede ser en el futuro' }
+  }
+
+  let age = today.getFullYear() - birthDate.getFullYear()
+  const monthDiff = today.getMonth() - birthDate.getMonth()
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--
+  }
+
+  if (age < minAge) {
+    return { valid: false, message: `La edad mínima es ${minAge} años` }
+  }
+
+  if (age > 120) {
+    return { valid: false, message: 'La edad no es válida' }
+  }
+
+  return { valid: true, message: 'Fecha válida', age }
+}
+
+/**
+ * Validar dirección
+ */
+export function validateAddress(address: string): { valid: boolean; message: string } {
+  const trimmed = address.trim()
+  
+  if (!trimmed) {
+    return { valid: false, message: 'La dirección es requerida' }
+  }
+
+  if (trimmed.length < 10) {
+    return { valid: false, message: 'La dirección debe ser más descriptiva (mínimo 10 caracteres)' }
+  }
+
+  if (trimmed.length > 255) {
+    return { valid: false, message: 'La dirección es demasiado larga' }
+  }
+
+  return { valid: true, message: 'Dirección válida' }
+}
+
+/**
+ * Validar nombre completo
+ */
+export function validateFullName(name: string): { valid: boolean; message: string } {
+  const trimmed = name.trim()
+
+  if (trimmed.length < 3) {
+    return { valid: false, message: 'El nombre debe tener al menos 3 caracteres' }
+  }
+
+  if (trimmed.length > 100) {
+    return { valid: false, message: 'El nombre no puede exceder 100 caracteres' }
+  }
+
+  const words = trimmed.split(/\s+/)
+  if (words.length < 2) {
+    return { valid: false, message: 'Debes ingresar nombre y apellido' }
+  }
+
+  if (/\d/.test(trimmed)) {
+    return { valid: false, message: 'El nombre no puede contener números' }
+  }
+
+  return { valid: true, message: 'Nombre válido' }
+}
+
+/**
+ * Validar email
  */
 export function validateEmail(email: string): { valid: boolean; message: string } {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -109,112 +210,15 @@ export function validateEmail(email: string): { valid: boolean; message: string 
 }
 
 /**
- * Validar contraseña (fuerte)
+ * Dividir nombre en nombre y apellido
  */
-export function validatePassword(password: string): { valid: boolean; errors: string[] } {
-  const errors: string[] = []
-
-  if (password.length < 8) {
-    errors.push('Mínimo 8 caracteres')
+export function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const words = fullName.trim().split(/\s+/)
+  if (words.length >= 2) {
+    return {
+      firstName: words[0],
+      lastName: words.slice(1).join(' ')
+    }
   }
-  if (!/[A-Z]/.test(password)) {
-    errors.push('Incluye una letra mayúscula')
-  }
-  if (!/[a-z]/.test(password)) {
-    errors.push('Incluye una letra minúscula')
-  }
-  if (!/[0-9]/.test(password)) {
-    errors.push('Incluye un número')
-  }
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-    errors.push('Incluye un carácter especial (!@#$% etc)')
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors
-  }
-}
-
-/**
- * Validar nombre completo (Ecuador)
- */
-export function validateFullName(name: string): { valid: boolean; message: string } {
-  const trimmed = name.trim()
-  
-  if (!trimmed) {
-    return { valid: false, message: 'El nombre es requerido' }
-  }
-
-  const parts = trimmed.split(/\s+/)
-  
-  if (parts.length < 2) {
-    return { valid: false, message: 'Por favor ingresa nombre y apellido' }
-  }
-
-  // Validar que no contenga números o caracteres especiales
-  if (!/^[a-záéíóúñüA-ZÁÉÍÓÚÑÜ\s'-]+$/.test(trimmed)) {
-    return { valid: false, message: 'El nombre contiene caracteres inválidos' }
-  }
-
-  if (trimmed.length > 100) {
-    return { valid: false, message: 'El nombre es demasiado largo' }
-  }
-
-  return { valid: true, message: 'Nombre válido' }
-}
-
-/**
- * Formatear teléfono a formato visible
- */
-export function formatPhoneDisplay(phone: string): string {
-  const cleaned = phone.replace(/\D/g, '')
-  
-  if (cleaned.length === 10) {
-    return `+593 ${cleaned}`
-  }
-  
-  if (cleaned.length === 12 && cleaned.startsWith('593')) {
-    return `+593 ${cleaned.slice(3)}`
-  }
-
-  return phone
-}
-
-/**
- * Formatear teléfono para almacenamiento (con prefijo)
- */
-export function formatPhoneStorage(phone: string): string {
-  const cleaned = phone.replace(/\D/g, '')
-  
-  if (cleaned.length === 10) {
-    return `${ECUADOR_PHONE_PREFIX}${cleaned}`
-  }
-  
-  if (cleaned.length === 12 && cleaned.startsWith('593')) {
-    return `+593${cleaned.slice(3)}`
-  }
-
-  return cleaned.length === 10 ? `${ECUADOR_PHONE_PREFIX}${cleaned}` : phone
-}
-
-/**
- * Validar dirección (no vacía, no inyecciones)
- */
-export function validateAddress(address: string): { valid: boolean; message: string } {
-  const trimmed = address.trim()
-  
-  if (!trimmed) {
-    return { valid: false, message: 'La dirección es requerida' }
-  }
-
-  if (trimmed.length < 5) {
-    return { valid: false, message: 'La dirección debe ser más descriptiva' }
-  }
-
-  if (trimmed.length > 255) {
-    return { valid: false, message: 'La dirección es demasiado larga' }
-  }
-
-  return { valid: true, message: 'Dirección válida' }
+  return { firstName: fullName, lastName: '' }
 }

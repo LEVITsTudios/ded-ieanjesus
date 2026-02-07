@@ -4,11 +4,13 @@ import React from "react"
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -23,6 +25,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Users,
@@ -35,6 +46,7 @@ import {
   Shield,
   GraduationCap,
   UserCheck,
+  Loader2,
 } from "lucide-react"
 import type { Profile, UserRole } from "@/lib/types"
 
@@ -49,9 +61,17 @@ const roleConfig: Record<UserRole, { label: string; color: string; icon: React.E
   parent: { label: "Padre", color: "bg-chart-4/10 text-chart-4 border-chart-4/20", icon: Users },
 }
 
-export function UsersView({ users }: UsersViewProps) {
+export function UsersView({ users: initialUsers }: UsersViewProps) {
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
+  const [users, setUsers] = useState<Profile[]>(initialUsers)
+  const [selectedUser, setSelectedUser] = useState<Profile | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editingUser, setEditingUser] = useState<Partial<Profile>>({})
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
@@ -69,6 +89,72 @@ export function UsersView({ users }: UsersViewProps) {
     parents: users.filter((u) => u.role === "parent").length,
   }
 
+  const handleDelete = async () => {
+    if (!selectedUser) return
+    setLoading(true)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/users/${selectedUser.id}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json?.error || "Error eliminando usuario")
+      }
+
+      setUsers(users.filter((u) => u.id !== selectedUser.id))
+      setShowDeleteDialog(false)
+      setSelectedUser(null)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEditOpen = (user: Profile) => {
+    setSelectedUser(user)
+    setEditingUser({
+      full_name: user.full_name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+    })
+    setShowEditDialog(true)
+  }
+
+  const handleEditSave = async () => {
+    if (!selectedUser) return
+    setLoading(true)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/users/${selectedUser.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editingUser),
+      })
+
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json?.error || "Error actualizando usuario")
+      }
+
+      const updatedUser = await res.json()
+      setUsers(users.map((u) => (u.id === selectedUser.id ? { ...u, ...editingUser } : u)))
+      setShowEditDialog(false)
+      setSelectedUser(null)
+      setEditingUser({})
+      router.refresh()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -84,6 +170,12 @@ export function UsersView({ users }: UsersViewProps) {
           </Link>
         </Button>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -240,11 +332,19 @@ export function UsersView({ users }: UsersViewProps) {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleEditOpen(user)}
+                              >
                                 <Edit className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive">
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => {
+                                  setSelectedUser(user)
+                                  setShowDeleteDialog(true)
+                                }}
+                              >
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Eliminar
                               </DropdownMenuItem>
@@ -260,6 +360,84 @@ export function UsersView({ users }: UsersViewProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <AlertDialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Editar Usuario</AlertDialogTitle>
+            <AlertDialogDescription>Realiza cambios en la información del usuario</AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nombre Completo</label>
+              <Input
+                value={editingUser.full_name || ""}
+                onChange={(e) => setEditingUser({ ...editingUser, full_name: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Rol</label>
+              <Select value={editingUser.role || "student"} onValueChange={(v) => setEditingUser({ ...editingUser, role: v as UserRole })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="teacher">Maestro</SelectItem>
+                  <SelectItem value="student">Estudiante</SelectItem>
+                  <SelectItem value="parent">Padre</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Teléfono</label>
+              <Input
+                value={editingUser.phone || ""}
+                onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={handleEditSave} disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Guardando...
+              </>
+            ) : (
+              "Guardar cambios"
+            )}
+          </AlertDialogAction>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar usuario?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará el usuario <strong>{selectedUser?.full_name}</strong> y todos sus datos asociados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={handleDelete} disabled={loading} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Eliminando...
+              </>
+            ) : (
+              "Eliminar usuario"
+            )}
+          </AlertDialogAction>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

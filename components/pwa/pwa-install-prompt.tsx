@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { X, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { APP_NAME } from '@/lib/constants'
 
 export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
@@ -44,7 +45,7 @@ export function PWAInstallPrompt() {
             <div>
               <h3 className="font-semibold text-gray-900">Instalar Aplicación</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Instala LVTsAcademic en tu dispositivo para acceso rápido y funcionamiento offline.
+                Instala {APP_NAME} en tu dispositivo para acceso rápido y funcionamiento offline.
               </p>
             </div>
           </div>

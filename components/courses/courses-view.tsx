@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +26,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import type { UserRole } from "@/lib/types"
 
 interface Course {
@@ -61,8 +72,14 @@ const statusLabels = {
   archived: "Archivado",
 }
 
-export function CoursesView({ courses, userRole, userId }: CoursesViewProps) {
+export function CoursesView({ courses: initialCourses, userRole, userId }: CoursesViewProps) {
   const [search, setSearch] = useState("")
+  const [courses, setCourses] = useState(initialCourses)
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
   const filteredCourses = courses.filter(
     (course) =>
@@ -73,8 +90,51 @@ export function CoursesView({ courses, userRole, userId }: CoursesViewProps) {
 
   const canEdit = userRole === "admin" || userRole === "teacher"
 
+  const handleDeleteClick = (course: Course) => {
+    // Only allow deletion if user is admin or is the course teacher
+    if (userRole === "admin" || course.teacher?.id === userId) {
+      setSelectedCourse(course)
+      setShowDeleteDialog(true)
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedCourse) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/courses/${selectedCourse.id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Error deleting course")
+      }
+
+      // Remove course from local state
+      setCourses(courses.filter(c => c.id !== selectedCourse.id))
+      setShowDeleteDialog(false)
+      setSelectedCourse(null)
+      router.refresh()
+    } catch (err: any) {
+      console.error("Delete error:", err)
+      setError(`Error: ${err?.message || "No se pudo eliminar el curso."}`)
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -154,16 +214,23 @@ export function CoursesView({ courses, userRole, userId }: CoursesViewProps) {
                             Ver Detalles
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/courses/${course.id}/edit`}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Editar
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Eliminar
-                        </DropdownMenuItem>
+                        {(userRole === "admin" || course.teacher?.id === userId) && (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/courses/${course.id}/edit`}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Editar
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {(userRole === "admin" || course.teacher?.id === userId) && (
+                          <DropdownMenuItem 
+                            className="text-destructive cursor-pointer"
+                            onClick={() => handleDeleteClick(course)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
@@ -228,6 +295,29 @@ export function CoursesView({ courses, userRole, userId }: CoursesViewProps) {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar Curso</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro que deseas eliminar el curso "<strong>{selectedCourse?.name}</strong>"? 
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-3">
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={loading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {loading ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

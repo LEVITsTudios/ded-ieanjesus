@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { checkProfileCompletion } from "@/lib/profile-completion";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -25,10 +26,20 @@ export async function GET(request: Request) {
 
         // Si no hay perfil, redirigir a register para elegir rol (OAuth flow)
         if (!profile) {
-          const email = user.email || ""
-          return NextResponse.redirect(`${origin}/auth/register?oauth=google&email=${encodeURIComponent(
-            email
-          )}`)
+          const email = user.email || "";
+          return NextResponse.redirect(
+            `${origin}/auth/register?oauth=google&email=${encodeURIComponent(
+              email
+            )}`
+          );
+        }
+
+        // Verificar que el perfil esté completo
+        const completionStatus = await checkProfileCompletion(supabase, user.id);
+        
+        if (!completionStatus.isComplete) {
+          // Redirigir a onboarding para completar perfil
+          return NextResponse.redirect(`${origin}/onboarding`);
         }
 
         // Si es estudiante y no tiene ficha estudiantil, redirigir

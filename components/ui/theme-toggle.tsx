@@ -11,7 +11,22 @@ import {
 } from './dropdown-menu'
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, mounted } = useTheme()
+
+  // No renderizar hasta que el componente esté montado en el cliente
+  if (!mounted) {
+    return (
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Toggle theme"
+        disabled
+        className="relative"
+      >
+        <Sun className="h-4 w-4" />
+      </Button>
+    )
+  }
 
   return (
     <DropdownMenu>

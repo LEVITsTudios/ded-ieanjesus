@@ -56,40 +56,6 @@ export function MobileNavigation() {
         </div>
       </nav>
 
-      {/* Menu hamburguesa en móviles */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild className="md:hidden fixed top-4 right-4 z-50">
-          <Button variant="outline" size="icon" aria-label="Menú">
-            <Menu className="h-4 w-4" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-64">
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold">Menú</h2>
-            <nav className="space-y-2">
-              {navItems.map(({ href, label, icon: Icon }) => {
-                const isActive = pathname === href || pathname.startsWith(href + '/')
-                
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    onClick={() => setOpen(false)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'hover:bg-accent'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </Link>
-                )
-              })}
-            </nav>
-          </div>
-        </SheetContent>
-      </Sheet>
     </>
   )
 }
