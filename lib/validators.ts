@@ -71,9 +71,9 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   for (let i = 0; i < 9; i++) {
     let product = digits[i] * weights[i]
     
-    // Si el producto es >= 10, sumar sus dígitos
-    // Ej: 48 → 4 + 8 = 12; 15 → 1 + 5 = 6
-    if (product >= 10) {
+    // Si el producto es >= 10, sumar sus dígitos repetidamente hasta obtener un solo dígito
+    // Ej: 48 → 4 + 8 = 12 → 1 + 2 = 3; 15 → 1 + 5 = 6
+    while (product >= 10) {
       product = Math.floor(product / 10) + (product % 10)
     }
     
