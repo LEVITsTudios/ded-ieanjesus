@@ -392,7 +392,13 @@ export default function OnboardingPage() {
       setLoading(true)
       setError(null)
 
-      await saveSecurityAnswers(supabase, user.id, answersData)
+      // Convertir answersData de Record a Array
+      const answersArray = Object.entries(answersData).map(([question_id, answer]) => ({
+        question_id,
+        answer,
+      }))
+
+      await saveSecurityAnswers(supabase, user.id, answersArray)
 
       setCurrentStep(2)
       setLoading(false)

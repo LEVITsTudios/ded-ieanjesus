@@ -32,7 +32,7 @@ export function GeoLocationPicker({ onLocationSelect, initialLocation, loading =
 
   // Cargar librería Leaflet dinámicamente
   useEffect(() => {
-    if (!window.L) {
+    if (!(window as any).L) {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
       link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
@@ -53,7 +53,7 @@ export function GeoLocationPicker({ onLocationSelect, initialLocation, loading =
   useEffect(() => {
     if (!mapReady || !mapContainer.current) return
 
-    const L = window.L
+    const L = (window as any).L
     if (!map.current) {
       // Centro de Ecuador (Quito)
       const defaultCenter = [initialLocation?.latitude || -0.2299, initialLocation?.longitude || -78.5094]
@@ -138,7 +138,7 @@ export function GeoLocationPicker({ onLocationSelect, initialLocation, loading =
   const updateMarker = (lat: number, lng: number) => {
     if (!map.current) return
 
-    const L = window.L
+    const L = (window as any).L
     if (marker.current) {
       marker.current.remove()
     }
