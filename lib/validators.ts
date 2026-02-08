@@ -62,6 +62,7 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
     return { valid: false, message: `Código de provincia inválido: ${provinceCode} (válido: 01-24)` }
   }
 
+  // Algoritmo SRI Ecuador - Módulo 11
   const digits = cedula.split('').map(Number)
   const weights = [2, 3, 4, 5, 6, 7, 8, 9, 1]
   let sum = 0
@@ -69,18 +70,22 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   // Calcular suma ponderada (primeros 9 dígitos)
   for (let i = 0; i < 9; i++) {
     let product = digits[i] * weights[i]
-    // Si el producto es >= 10, restar 9
-    if (product >= 10) product -= 9
+    // Si el producto es >= 10, restar 9 (es el método correcto del SRI)
+    if (product >= 10) product = product - 9
     sum += product
   }
 
   // Calcular dígito verificador
-  const checkDigit = (10 - (sum % 10)) % 10
+  // 10 - (suma % 10), pero si result es 10, usar 0
+  let checkDigit = 10 - (sum % 10)
+  if (checkDigit === 10) {
+    checkDigit = 0
+  }
   
   if (checkDigit !== digits[9]) {
     return { 
       valid: false, 
-      message: `Cédula inválida: dígito verificador incorrecto (esperado: ${checkDigit}, recibido: ${digits[9]})` 
+      message: `Cédula formato incorrecto. Verifica el último dígito (debe ser ${checkDigit} en lugar de ${digits[9]})` 
     }
   }
 
