@@ -1,10 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
+import { createSafeClient } from '@/lib/supabase/safe-client'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * Verifica si un DNI o teléfono ya existe en la base de datos
+ * Verifica si un DNI, teléfono o email ya existe en la base de datos
  * GET /api/check-duplicates?dni=1234567890
  * GET /api/check-duplicates?phone=0963881234
+ * GET /api/check-duplicates?email=user@email.com
  */
 export async function GET(request: NextRequest) {
   try {
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = await createSafeClient()
 
     // Verificar DNI
     if (dni) {
@@ -31,13 +32,12 @@ export async function GET(request: NextRequest) {
         .eq('dni', dni)
         .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error checking DNI:', error)
         return NextResponse.json({ error: 'Error al verificar DNI' }, { status: 500 })
       }
 
       if (data) {
-        // Si encontramos un DNI y el usuario actual es diferente, es duplicado
         if (currentUserId && data.id === currentUserId) {
           return NextResponse.json({ exists: false, message: 'Tu DNI actual' })
         }
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
         .eq('phone', phone)
         .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error checking phone:', error)
         return NextResponse.json({ error: 'Error al verificar teléfono' }, { status: 500 })
       }
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
         .eq('email', email.toLowerCase())
         .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error checking email:', error)
         return NextResponse.json({ error: 'Error al verificar email' }, { status: 500 })
       }
@@ -104,6 +104,11 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({ exists: false, message: 'Email disponible' })
     }
+
+    return NextResponse.json(
+      { error: 'No se procesó la solicitud' },
+      { status: 400 }
+    )
   } catch (error) {
     console.error('Error in check-duplicates:', error)
     return NextResponse.json(
