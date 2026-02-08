@@ -16,6 +16,7 @@ import {
   validateAddress,
   validateFullName,
   validateEmail,
+  formatEcuadorianPhoneForStorage,
   ECUADOR_PROVINCES,
 } from '@/lib/validators'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -304,13 +305,17 @@ export default function OnboardingPage() {
       }
 
       // Guardar datos personales
+      // Validar y formatear teléfono
+      const phoneValidation = validateEcuadorianPhone(formData.phone)
+      const formattedPhone = phoneValidation.formatted || formData.phone.trim()
+      
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: formData.full_name.trim(),
           email: formData.email.trim(),
           dni: formData.dni.trim(),
-          phone: formData.phone.trim(),
+          phone: formattedPhone.replace(/\s/g, ''), // Guardar sin espacios: +5939XXXXXXXX
           date_of_birth: formData.date_of_birth,
           address: formData.address.trim(),
           city: formData.city,
@@ -410,6 +415,19 @@ export default function OnboardingPage() {
     setFormData({ ...formData, [field]: value })
     if (fieldErrors[field]) {
       setFieldErrors({ ...fieldErrors, [field]: '' })
+    }
+  }
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    
+    // Solo permitir dígitos, espacios, guiones, paréntesis y +
+    const cleaned = value.replace(/[^\d\s\-()+ ]/g, '')
+    
+    // Almacenar el valor ingresado (el usuario verá el formato que ingresa)
+    setFormData({ ...formData, phone: cleaned })
+    if (fieldErrors.phone) {
+      setFieldErrors({ ...fieldErrors, phone: '' })
     }
   }
 
@@ -526,16 +544,22 @@ export default function OnboardingPage() {
                   </Label>
                   <Input
                     id="phone"
-                    placeholder="+593 9 XXXXXXXX"
+                    placeholder="0963881234 o +593963881234"
                     value={formData.phone}
-                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    onChange={handlePhoneChange}
                     className={fieldErrors.phone ? 'border-destructive' : ''}
                   />
+                  {formData.phone && !fieldErrors.phone && (
+                    <p className="text-xs text-green-600">
+                      ✓ Formateado como: {validateEcuadorianPhone(formData.phone).formatted || formData.phone}
+                    </p>
+                  )}
                   {fieldErrors.phone && (
                     <p className="text-xs text-destructive">{fieldErrors.phone}</p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Formato: +593 9XXXXXXXX (celular) o +593 2XXXXXXX (fijo)
+                    Celular: 0963881234 (10 dígitos) | Fijo: 022123456 (9 dígitos con código de área)
+                    <br />✓ Se formatará automáticamente como +593...
                   </p>
                 </div>
 

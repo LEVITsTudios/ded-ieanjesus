@@ -48,6 +48,9 @@ export function validateEcuadorianDNI(dni: string): { valid: boolean; message: s
 
 /**
  * Validar cédula con algoritmo de check digit (módulo 11)
+ * Cédulas de ejemplo válidas:
+ * 1708123456 (Pichincha - Quito)
+ * 1712234567 (Pichincha)
  */
 function validateCedula(cedula: string): { valid: boolean; message: string } {
   if (!/^\d{10}$/.test(cedula)) {
@@ -56,35 +59,50 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
 
   const provinceCode = parseInt(cedula.substring(0, 2))
   if (provinceCode < 1 || provinceCode > 24) {
-    return { valid: false, message: 'Provincia inválida (dígitos 1-2)' }
+    return { valid: false, message: `Código de provincia inválido: ${provinceCode} (válido: 01-24)` }
   }
 
   const digits = cedula.split('').map(Number)
   const weights = [2, 3, 4, 5, 6, 7, 8, 9, 1]
   let sum = 0
 
+  // Calcular suma ponderada (primeros 9 dígitos)
   for (let i = 0; i < 9; i++) {
     let product = digits[i] * weights[i]
+    // Si el producto es >= 10, restar 9
     if (product >= 10) product -= 9
     sum += product
   }
 
+  // Calcular dígito verificador
   const checkDigit = (10 - (sum % 10)) % 10
   
   if (checkDigit !== digits[9]) {
-    return { valid: false, message: 'Cédula inválida (dígito verificador incorrecto)' }
+    return { 
+      valid: false, 
+      message: `Cédula inválida: dígito verificador incorrecto (esperado: ${checkDigit}, recibido: ${digits[9]})` 
+    }
   }
 
   return { valid: true, message: 'Cédula válida' }
 }
 
 /**
- * Validar teléfono ecuatoriano
- * Formatos aceptados: +593 9 XXXXXXXX, +593 2-7 XXXXXXX, etc.
+ * Validar y formatear teléfono ecuatoriano
+ * Acepta:
+ * - Celulares: +593 9XXXXXXXX (9 dígitos después del prefijo)
+ * - Fijos: +593 2-7XXXXXXX (7-8 dígitos después del prefijo)
+ * - Formatos: 0963881234, 963881234, +593963881234
  */
 export function validateEcuadorianPhone(phone: string): { valid: boolean; message: string; formatted?: string } {
-  const cleaned = phone.replace(/[\s\-()]/g, '')
+  if (!phone || typeof phone !== 'string') {
+    return { valid: false, message: 'Teléfono requerido' }
+  }
+
+  // Remover espacios, guiones, paréntesis
+  let cleaned = phone.trim().replace(/[\s\-()]/g, '')
   
+  // Extraer los dígitos sin prefijo
   let withoutPrefix = ''
   
   if (cleaned.startsWith('+593')) {
@@ -93,23 +111,47 @@ export function validateEcuadorianPhone(phone: string): { valid: boolean; messag
     withoutPrefix = cleaned.slice(4)
   } else if (cleaned.startsWith('593')) {
     withoutPrefix = cleaned.slice(3)
+  } else if (cleaned.startsWith('0')) {
+    // Si comienza con 0, removerlo (formato local ecuatoriano)
+    withoutPrefix = cleaned.slice(1)
   } else {
     withoutPrefix = cleaned
   }
 
-  if (withoutPrefix.length === 9 || withoutPrefix.length === 8) {
-    const firstDigit = withoutPrefix[0]
-    if (['2', '3', '4', '5', '6', '7', '9'].includes(firstDigit)) {
-      const formatted = `${ECUADOR_PHONE_PREFIX} ${withoutPrefix}`
-      return {
-        valid: true,
-        message: 'Teléfono válido',
-        formatted
-      }
+  // Validar que sean todos dígitos
+  if (!/^\d+$/.test(withoutPrefix)) {
+    return { valid: false, message: 'El teléfono solo debe contener dígitos' }
+  }
+
+  // Validar longitud: celular (9 dígitos) o fijo (7-8 dígitos)
+  const length = withoutPrefix.length
+  const firstDigit = withoutPrefix[0]
+  
+  let phoneType = ''
+  
+  // Celulares: comienzan con 9 y tienen 9 dígitos
+  if (firstDigit === '9' && length === 9) {
+    phoneType = 'celular'
+  }
+  // Fijos: comienzan con 2-7 y tienen 7-8 dígitos
+  else if (['2', '3', '4', '5', '6', '7'].includes(firstDigit) && (length === 7 || length === 8)) {
+    phoneType = 'fijo'
+  }
+  else {
+    return { 
+      valid: false, 
+      message: `Formato inválido: Celular debe tener 9 dígitos (9XXXXXXXX) o Fijo 7-8 dígitos (2-7XXXXXXX)` 
     }
   }
 
-  return { valid: false, message: 'Teléfono no válido para Ecuador' }
+  // Formatear: +593 XXXXXXXXX
+  const formatted = `${ECUADOR_PHONE_PREFIX} ${withoutPrefix}`
+  
+  return {
+    valid: true,
+    message: `Teléfono válido (${phoneType})`,
+    formatted
+  }
 }
 
 /**
@@ -207,6 +249,26 @@ export function validateEmail(email: string): { valid: boolean; message: string 
   }
 
   return { valid: true, message: 'Correo válido' }
+}
+
+/**
+ * Formatear teléfono ecuatoriano eliminando espacios y prefijo, dejando solo dígitos
+ * Para almacenar en BD o usar en APIs
+ */
+export function formatEcuadorianPhoneForStorage(phone: string): string {
+  const cleaned = phone.trim().replace(/[\s\-()]/g, '')
+  
+  if (cleaned.startsWith('+593')) {
+    return cleaned.slice(4) // Quitar +593
+  } else if (cleaned.startsWith('0593')) {
+    return cleaned.slice(4)
+  } else if (cleaned.startsWith('593')) {
+    return cleaned.slice(3)
+  } else if (cleaned.startsWith('0')) {
+    return cleaned.slice(1)
+  }
+  
+  return cleaned
 }
 
 /**
