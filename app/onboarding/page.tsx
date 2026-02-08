@@ -35,6 +35,20 @@ import {
 import { Loader2, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/onboarding/geo-location-picker'
 
+// Preguntas de seguridad por defecto (fallback si no carga de BD)
+const DEFAULT_SECURITY_QUESTIONS = [
+  { id: 'q1', question_text: '¿Cuál es el nombre de tu primera mascota?' },
+  { id: 'q2', question_text: '¿En qué ciudad naciste?' },
+  { id: 'q3', question_text: '¿Cuál es el nombre de tu mejor amigo de la infancia?' },
+  { id: 'q4', question_text: '¿Cuál es el nombre de tu escuela primaria?' },
+  { id: 'q5', question_text: '¿Cuál es tu comida favorita?' },
+  { id: 'q6', question_text: '¿Cuál es el segundo nombre de tu madre?' },
+  { id: 'q7', question_text: '¿En qué año te graduaste de secundaria?' },
+  { id: 'q8', question_text: '¿Cuál es el nombre de la calle donde creciste?' },
+  { id: 'q9', question_text: '¿Cuál fue tu primer trabajo?' },
+  { id: 'q10', question_text: '¿Cuál es tu película favorita?' },
+]
+
 interface FormData {
   full_name: string
   email: string
@@ -162,15 +176,17 @@ export default function OnboardingPage() {
       // Cargar preguntas de seguridad
       try {
         const result = await getSecurityQuestions(supabase)
-        if (result && result.data && Array.isArray(result.data)) {
+        // Si se cargan preguntas de BD, usarlas
+        if (result && result.data && Array.isArray(result.data) && result.data.length > 0) {
           setSecurityQuestions(result.data)
         } else {
-          console.warn('Security questions format unexpected:', result)
-          setSecurityQuestions([])
+          // Si no, usar las preguntas por defecto
+          console.log('No security questions from DB, using defaults')
+          setSecurityQuestions(DEFAULT_SECURITY_QUESTIONS)
         }
       } catch (qErr) {
-        console.error('Error loading security questions:', qErr)
-        setSecurityQuestions([])
+        console.error('Error loading security questions, using defaults:', qErr)
+        setSecurityQuestions(DEFAULT_SECURITY_QUESTIONS)
       }
 
       setLoading(false)
@@ -352,8 +368,15 @@ export default function OnboardingPage() {
     // Validar que haya al menos 3 preguntas respondidas
     const answeredCount = Object.values(answersData).filter(a => a && a.trim()).length
 
-    if (answeredCount < 3) {
+    // Si hay preguntas, validar que responda al menos 3
+    if (securityQuestions.length > 0 && answeredCount < 3) {
       setError(`Debes responder al menos 3 preguntas de seguridad (${answeredCount}/3)`)
+      return
+    }
+
+    // Si no hay preguntas cargadas, permite avanzar
+    if (securityQuestions.length === 0) {
+      setCurrentStep(2)
       return
     }
 
