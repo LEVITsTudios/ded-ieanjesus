@@ -35,20 +35,6 @@ import {
 import { Loader2, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/onboarding/geo-location-picker'
 
-// Preguntas de seguridad por defecto (fallback si no carga de BD)
-// Usando UUIDs consistentes para compatibilidad con BD
-const DEFAULT_SECURITY_QUESTIONS = [
-  { id: '550e8400-e29b-41d4-a716-446655440001', question_text: '¿Cuál es el nombre de tu primera mascota?' },
-  { id: '550e8400-e29b-41d4-a716-446655440002', question_text: '¿En qué ciudad naciste?' },
-  { id: '550e8400-e29b-41d4-a716-446655440003', question_text: '¿Cuál es el nombre de tu mejor amigo de la infancia?' },
-  { id: '550e8400-e29b-41d4-a716-446655440004', question_text: '¿Cuál es el nombre de tu escuela primaria?' },
-  { id: '550e8400-e29b-41d4-a716-446655440005', question_text: '¿Cuál es tu comida favorita?' },
-  { id: '550e8400-e29b-41d4-a716-446655440006', question_text: '¿Cuál es el segundo nombre de tu madre?' },
-  { id: '550e8400-e29b-41d4-a716-446655440007', question_text: '¿En qué año te graduaste de secundaria?' },
-  { id: '550e8400-e29b-41d4-a716-446655440008', question_text: '¿Cuál es el nombre de la calle donde creciste?' },
-  { id: '550e8400-e29b-41d4-a716-446655440009', question_text: '¿Cuál fue tu primer trabajo?' },
-  { id: '550e8400-e29b-41d4-a716-446655440010', question_text: '¿Cuál es tu película favorita?' },
-]
 
 interface FormData {
   full_name: string
@@ -74,35 +60,175 @@ interface LocationData {
   postal_code: string
   location_url: string
 }
-
+  // location_url: string
 interface FieldErrors {
   [key: string]: string
 }
 
-export default function OnboardingPage() {
-  const router = useRouter()
-  const supabase = createClient()
-  const [currentStep, setCurrentStep] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [securityQuestions, setSecurityQuestions] = useState<any[]>([])
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
-  const [showPin, setShowPin] = useState(false)
-  const [showPinConfirm, setShowPinConfirm] = useState(false)
-  const [geoLoading, setGeoLoading] = useState(false)
-  const [checkingDuplicate, setCheckingDuplicate] = useState<'dni' | 'phone' | 'email' | null>(null)
-  const [dniValidation, setDniValidation] = useState<{ valid: boolean; message: string; isDuplicate: boolean }>(
-    { valid: false, message: '', isDuplicate: false }
-  )
-  const [phoneValidation, setPhoneValidation] = useState<{ valid: boolean; message: string; isDuplicate: boolean; formatted?: string }>(
-    { valid: false, message: '', isDuplicate: false }
-  )
+import { PinInput } from '@/components/security/PinInput';
 
+export default function OnboardingPage() {
+  // Estados para mostrar/ocultar PIN
+  const [showPin, setShowPin] = useState(false);
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
+
+  // Maneja la selección de ubicación desde el GeoLocationPicker
+  const handleLocationSelect = (location: LocationData) => {
+    setFormData((prev) => ({
+      ...prev,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      address: location.address,
+      city: location.city,
+      province: location.province,
+      postal_code: location.postal_code,
+      location_url: location.location_url,
+    }));
+    // Limpiar error de ubicación si existía
+    if (fieldErrors.location) {
+      setFieldErrors((prev) => ({ ...prev, location: '' }));
+    }
+  };
+
+  // Guardar datos personales y avanzar al siguiente paso
+  const savePersonalData = async () => {
+    setError(null);
+    // Validaciones básicas (puedes expandir según tus reglas)
+    const errors: FieldErrors = {};
+    if (!formData.full_name.trim()) errors.full_name = 'El nombre es obligatorio';
+    if (!formData.email.trim()) errors.email = 'El correo es obligatorio';
+    if (!formData.dni.trim()) errors.dni = 'El DNI es obligatorio';
+    if (!formData.phone.trim()) errors.phone = 'El teléfono es obligatorio';
+    if (!formData.date_of_birth.trim()) errors.date_of_birth = 'La fecha de nacimiento es obligatoria';
+    if (!formData.address.trim()) errors.address = 'La dirección es obligatoria';
+    if (!formData.city.trim()) errors.city = 'La ciudad es obligatoria';
+    if (!formData.province.trim()) errors.province = 'La provincia es obligatoria';
+    if (!formData.latitude || !formData.longitude) errors.location = 'La ubicación es obligatoria';
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError('Por favor completa todos los campos obligatorios.');
+      return;
+    }
+    setLoading(true);
+    try {
+      // Guardar datos en el backend
+      const dataToUpdate = {
+        full_name: formData.full_name,
+        phone: formData.phone,
+        address: formData.address,
+        date_of_birth: formData.date_of_birth,
+      };
+      
+      await updateProfileData(supabase, user.id, dataToUpdate);
+      setCurrentStep(1);
+    } catch (err: any) {
+      setError('Error al guardar los datos personales.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hooks y estados principales
+  const router = useRouter();
+  const supabase = createClient();
+
+  // Estado de usuario autenticado
+  const [authChecked, setAuthChecked] = useState(false);
+  const [session, setSession] = useState<any>(null);
+
+  // Verificar sesión activa al cargar el componente
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!data?.session) {
+        router.replace('/auth/login');
+      } else {
+        setSession(data.session);
+        setUser({ id: data.session.user.id, email: data.session.user.email });
+      }
+      setAuthChecked(true);
+    };
+    checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cargar datos del perfil cuando la sesión está lista
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      if (!session?.user?.id) return;
+
+      try {
+        setLoading(true);
+
+        // Obtener datos del usuario de la tabla profiles
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileData && !profileError) {
+          setProfile(profileData);
+          // Pre-llenar el formulario con datos existentes
+          setFormData((prev) => ({
+            ...prev,
+            full_name: profileData.full_name || '',
+            email: session.user.email || '',
+            dni: profileData.dni || '',
+            phone: profileData.phone || '',
+            date_of_birth: profileData.date_of_birth || '',
+            address: profileData.address || '',
+            city: profileData.city || '',
+            province: profileData.province || '',
+            postal_code: profileData.postal_code || '',
+            latitude: profileData.latitude || null,
+            longitude: profileData.longitude || null,
+            location_url: profileData.location_url || '',
+          }));
+        }
+
+        // Cargar preguntas de seguridad
+        const { data: questionsData, error: questionsError } = await supabase
+          .from('security_questions')
+          .select('*')
+          .eq('is_active', true)
+          .limit(5);
+
+        if (questionsData && !questionsError) {
+          setSecurityQuestions(questionsData);
+
+          // Cargar respuestas existentes desde user_security_answers
+          const { data: answersData, error: answersError } = await supabase
+            .from('user_security_answers')
+            .select('question_id')
+            .eq('user_id', session.user.id);
+
+          if (answersData && !answersError && answersData.length > 0) {
+            const answersMap: Record<string, string> = {};
+            // Marcar que existe una respuesta anterior con un indicador especial
+            answersData.forEach((ans: any) => {
+              answersMap[ans.question_id] = '[RESPUESTA_EXISTENTE]'; // Marcador interno
+            });
+            setAnswersData(answersMap);
+          }
+        }
+      } catch (err: any) {
+        console.error('Error loading user profile:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  // Paso actual del formulario
+  const [currentStep, setCurrentStep] = useState(0);
+  // Datos del formulario principal
   const [formData, setFormData] = useState<FormData>({
     full_name: '',
-    email: '',
+    email: session?.user?.email || '', // Pre-llenar desde sesión
     dni: '',
     phone: '',
     date_of_birth: '',
@@ -113,269 +239,48 @@ export default function OnboardingPage() {
     latitude: null,
     longitude: null,
     location_url: '',
-  })
-
-  const [securityData, setSecurityData] = useState({
-    pin: '',
-    pin_confirm: '',
-  })
-
-  const [answersData, setAnswersData] = useState<Record<string, string>>({})
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-
+  });
+  // Errores de campos
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  // Estado de carga general
+  const [loading, setLoading] = useState(false);
+  // Error general
+  const [error, setError] = useState<string | null>(null);
+  // Validación de DNI
+  const [dniValidation, setDniValidation] = useState({ valid: false, message: '', isDuplicate: false });
+  // Validación de teléfono
+  const [phoneValidation, setPhoneValidation] = useState({ valid: false, message: '', isDuplicate: false, formatted: '' });
+  // Estado de comprobación de duplicados
+  const [checkingDuplicate, setCheckingDuplicate] = useState<string | null>(null);
+  // Preguntas de seguridad
+  const [securityQuestions, setSecurityQuestions] = useState<any[]>([]);
+  // Respuestas a preguntas de seguridad
+  const [answersData, setAnswersData] = useState<Record<string, string>>({});
+  // Estado de seguridad (PIN)
+  const [securityData, setSecurityData] = useState({ pin: '', pin_confirm: '' });
+  // Estado de perfil simulado (puedes ajustar según tu lógica real)
+  const [profile, setProfile] = useState<any>(null);
+  // Estado de usuario simulado (puedes ajustar según tu lógica real)
+  const [user, setUser] = useState<any>(() => {
+    // Intentar obtener user ID desde session si existe
+    return { id: session?.user?.id || '', email: session?.user?.email || '' };
+  });
+  // Estado de geolocalización
+  const [geoLoading, setGeoLoading] = useState(false);
+  // Estado de índice de pregunta de seguridad actual
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  // Pasos del formulario (puedes ajustar según tu lógica real)
   const steps = [
-    {
-      id: 'personal',
-      title: 'Información Personal',
-      description: 'Datos básicos y ubicación (requerido)',
-    },
-    {
-      id: 'security-questions',
-      title: 'Preguntas de Seguridad',
-      description: 'Configura tus respuestas de seguridad',
-    },
-    {
-      id: 'security-pin',
-      title: 'PIN de Seguridad',
-      description: 'Crea un código de acceso (4-6 dígitos)',
-    },
-  ]
-
-  useEffect(() => {
-    initializeOnboarding()
-  }, [])
-
-  const initializeOnboarding = async () => {
-    try {
-      setLoading(true)
-      const { data: { user } } = await supabase.auth.getUser()
-
-      if (!user) {
-        router.push('/auth/login')
-        return
-      }
-
-      setUser(user)
-
-      // Cargar perfil actual
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (profileData) {
-        setProfile(profileData)
-        setFormData({
-          full_name: profileData.full_name || user.user_metadata?.full_name || '',
-          email: profileData.email || user.email || '',
-          dni: profileData.dni || '',
-          phone: profileData.phone || '',
-          date_of_birth: profileData.date_of_birth || '',
-          address: profileData.address || '',
-          city: profileData.city || '',
-          province: profileData.province || '',
-          postal_code: profileData.postal_code || '',
-          latitude: profileData.latitude || null,
-          longitude: profileData.longitude || null,
-          location_url: profileData.location_url || '',
-        })
-      }
-
-      // Cargar preguntas de seguridad
-      try {
-        const result = await getSecurityQuestions(supabase)
-        // Si se cargan preguntas de BD, usarlas
-        if (result && result.data && Array.isArray(result.data) && result.data.length > 0) {
-          setSecurityQuestions(result.data)
-        } else {
-          // Si no, usar las preguntas por defecto
-          console.log('No security questions from DB, using defaults')
-          setSecurityQuestions(DEFAULT_SECURITY_QUESTIONS)
-        }
-      } catch (qErr) {
-        console.error('Error loading security questions, using defaults:', qErr)
-        setSecurityQuestions(DEFAULT_SECURITY_QUESTIONS)
-      }
-
-      setLoading(false)
-    } catch (err) {
-      console.error('Error initializing onboarding:', err)
-      setError('Error al cargar el formulario. Por favor recarga la página.')
-      setLoading(false)
-    }
-  }
-
-  const validatePersonalData = (): boolean => {
-    const errors: FieldErrors = {}
-
-    // Validar nombre (si no viene de OAuth)
-    if (!formData.full_name || !formData.full_name.trim()) {
-      errors.full_name = 'El nombre completo es requerido'
-    } else {
-      const nameValidation = validateFullName(formData.full_name)
-      if (!nameValidation.valid) {
-        errors.full_name = nameValidation.message
-      }
-    }
-
-    // Validar email (si no viene de OAuth)
-    if (!formData.email || !formData.email.trim()) {
-      errors.email = 'El email es requerido'
-    } else {
-      const emailValidation = validateEmail(formData.email)
-      if (!emailValidation.valid) {
-        errors.email = emailValidation.message
-      }
-    }
-
-    // Validar DNI/Cédula (MUY IMPORTANTE para Ecuador)
-    if (!formData.dni || !formData.dni.trim()) {
-      errors.dni = 'La cédula es requerida'
-    } else {
-      // Verificar validación en tiempo real
-      if (!dniValidation.valid || dniValidation.isDuplicate) {
-        errors.dni = dniValidation.message || 'DNI inválido o duplicado'
-      }
-    }
-
-    // Validar teléfono
-    if (!formData.phone || !formData.phone.trim()) {
-      errors.phone = 'El teléfono es requerido'
-    } else {
-      // Verificar validación en tiempo real
-      if (!phoneValidation.valid || phoneValidation.isDuplicate) {
-        errors.phone = phoneValidation.message || 'Teléfono inválido o duplicado'
-      }
-    }
-
-    // Validar fecha de nacimiento
-    if (!formData.date_of_birth) {
-      errors.date_of_birth = 'La fecha de nacimiento es requerida'
-    } else {
-      const ageValidation = validateDateOfBirth(formData.date_of_birth, 5)
-      if (!ageValidation.valid) {
-        errors.date_of_birth = ageValidation.message
-      }
-    }
-
-    // Validar dirección
-    if (!formData.address || !formData.address.trim()) {
-      errors.address = 'La dirección es requerida'
-    } else {
-      const addressValidation = validateAddress(formData.address)
-      if (!addressValidation.valid) {
-        errors.address = addressValidation.message
-      }
-    }
-
-    // Validar ubicación GPS (obligatoria)
-    if (!formData.latitude || !formData.longitude) {
-      errors.location = 'Debes seleccionar tu ubicación en el mapa'
-    }
-
-    // Validar provincia
-    if (!formData.province || formData.province.trim() === '') {
-      errors.province = 'La provincia es requerida'
-    }
-
-    setFieldErrors(errors)
-    return Object.keys(errors).length === 0
-  }
-
-  const handleLocationSelect = (location: LocationData) => {
-    setFormData({
-      ...formData,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      address: location.address,
-      city: location.city,
-      province: location.province,
-      postal_code: location.postal_code,
-      location_url: location.location_url,
-    })
-    setFieldErrors({ ...fieldErrors, location: '' })
-  }
-
-  const savePersonalData = async () => {
-    if (!validatePersonalData()) {
-      setError('Por favor completa todos los campos correctamente')
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      // Verificar duplicados: DNI
-      if (formData.dni.trim()) {
-        const { data: existingDni } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('dni', formData.dni.trim())
-          .neq('id', user.id)
-          .limit(1)
-
-        if (existingDni && existingDni.length > 0) {
-          setError('Esta cédula ya está registrada en el sistema')
-          setLoading(false)
-          return
-        }
-      }
-
-      // Verificar duplicados: Teléfono
-      if (formData.phone.trim()) {
-        const { data: existingPhone } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('phone', formData.phone.trim())
-          .neq('id', user.id)
-          .limit(1)
-
-        if (existingPhone && existingPhone.length > 0) {
-          setError('Este teléfono ya está registrado en el sistema')
-          setLoading(false)
-          return
-        }
-      }
-
-      // Guardar datos personales
-      // Validar y formatear teléfono
-      const phoneValidation = validateEcuadorianPhone(formData.phone)
-      const formattedPhone = phoneValidation.formatted || formData.phone.trim()
-      
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: formData.full_name.trim(),
-          email: formData.email.trim(),
-          dni: formData.dni.trim(),
-          phone: formattedPhone.replace(/\s/g, ''), // Guardar sin espacios: +5939XXXXXXXX
-          date_of_birth: formData.date_of_birth,
-          address: formData.address.trim(),
-          city: formData.city,
-          province: formData.province,
-          postal_code: formData.postal_code,
-          latitude: formData.latitude,
-          longitude: formData.longitude,
-          location_url: formData.location_url,
-        })
-        .eq('id', user.id)
-
-      if (updateError) throw updateError
-
-      setCurrentStep(1)
-      setLoading(false)
-    } catch (err: any) {
-      console.error('Error saving personal data:', err)
-      setError(err.message || 'Error al guardar datos personales')
-      setLoading(false)
-    }
-  }
+    { id: 1, title: 'Datos Personales', description: 'Completa tus datos personales para continuar.' },
+    { id: 2, title: 'Preguntas de Seguridad', description: 'Responde al menos 3 preguntas de seguridad.' },
+    { id: 3, title: 'PIN de Seguridad', description: 'Configura un PIN de seguridad para tu cuenta.' },
+  ];
 
   const saveSecurityQuestions = async () => {
     // Validar que haya al menos 3 preguntas respondidas
-    const answeredCount = Object.values(answersData).filter(a => a && a.trim()).length
+    const answeredCount = Object.values(answersData).filter(a => 
+      a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+    ).length
 
     // Si hay preguntas, validar que responda al menos 3
     if (securityQuestions.length > 0 && answeredCount < 3) {
@@ -393,11 +298,18 @@ export default function OnboardingPage() {
       setLoading(true)
       setError(null)
 
-      // Convertir answersData de Record a Array
-      const answersArray = Object.entries(answersData).map(([question_id, answer]) => ({
-        question_id,
-        answer,
-      }))
+      // Convertir answersData de Record a Array, filtrando el marcador de respuestas existentes
+      const answersArray = Object.entries(answersData)
+        .filter(([_, answer]) => answer && answer.trim() && answer !== '[RESPUESTA_EXISTENTE]')
+        .map(([question_id, answer]) => ({
+          question_id,
+          answer,
+        }))
+
+      if (answersArray.length === 0) {
+        setError('Debes responder al menos 3 preguntas de seguridad')
+        return
+      }
 
       await saveSecurityAnswers(supabase, user.id, answersArray)
 
@@ -434,12 +346,21 @@ export default function OnboardingPage() {
       const response = await fetch('/api/security/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: securityData.pin }),
+        body: JSON.stringify({ 
+          pin: securityData.pin,
+          userId: user.id, // Enviar el user ID desde el cliente
+        }),
       })
 
       if (!response.ok) {
-        throw new Error('Error al guardar PIN')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || `Error del servidor (${response.status})`
+        console.error('API Error:', { status: response.status, errorData })
+        throw new Error(errorMessage)
       }
+
+      const responseData = await response.json()
+      console.log('PIN guardado exitosamente:', responseData)
 
       // Verificar completitud del perfil
       const completion = await checkProfileCompletion(supabase, user.id)
@@ -508,46 +429,45 @@ export default function OnboardingPage() {
 
   const validatePhoneRealtime = async (value: string) => {
     if (!value) {
-      setPhoneValidation({ valid: false, message: '', isDuplicate: false })
+      setPhoneValidation({ valid: false, message: '', isDuplicate: false, formatted: '' })
       return
     }
 
     const validation = validateEcuadorianPhone(value)
     if (!validation.valid) {
-      setPhoneValidation({ valid: false, message: validation.message, isDuplicate: false })
+      setPhoneValidation({ valid: false, message: validation.message, isDuplicate: false, formatted: '' })
       return
     }
 
     // Verificar duplicado
     try {
       setCheckingDuplicate('phone')
-      const formattedPhone = validation.formatted?.replace(/\s/g, '') || value
+      const formattedPhone = validation.formatted ? validation.formatted.replace(/\s/g, '') : value;
       const response = await fetch(`/api/check-duplicates?phone=${encodeURIComponent(formattedPhone)}&currentUserId=${user?.id || ''}`)
-      const result = await response.json()
-      
+      const result = await response.json();
       if (result.exists) {
         setPhoneValidation({ 
           valid: false, 
           message: result.message, 
           isDuplicate: true,
-          formatted: validation.formatted
-        })
+          formatted: validation.formatted || ''
+        });
       } else {
         setPhoneValidation({ 
           valid: true, 
           message: `✓ Teléfono válido (${validation.message.includes('celular') ? 'celular' : 'fijo'})`,
           isDuplicate: false,
-          formatted: validation.formatted
-        })
+          formatted: validation.formatted || ''
+        });
       }
     } catch (error) {
-      console.error('Error checking phone duplicate:', error)
+      console.error('Error checking phone duplicate:', error);
       setPhoneValidation({ 
         valid: true, 
         message: validation.message, 
         isDuplicate: false,
-        formatted: validation.formatted
-      })
+        formatted: validation.formatted || ''
+      });
     } finally {
       setCheckingDuplicate(null)
     }
@@ -569,7 +489,7 @@ export default function OnboardingPage() {
     validatePhoneRealtime(cleaned)
   }
 
-  if (loading && currentStep === 0) {
+  if (!authChecked || (loading && currentStep === 0)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -579,7 +499,7 @@ export default function OnboardingPage() {
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   return (
@@ -606,9 +526,19 @@ export default function OnboardingPage() {
             {/* PASO 1: DATOS PERSONALES */}
             {currentStep === 0 && (
               <div className="space-y-6">
-               <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {steps[0].description}
                 </p>
+
+                {/* Resumen de campos completados */}
+                {profile && (
+                  <Alert className="bg-blue-50 border-blue-200">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      <strong>Información encontrada:</strong> Tu perfil ya contiene algunos datos. Puedes completar o actualizar los campos faltantes.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* Nombre Completo */}
                 <div className="space-y-2">
@@ -894,6 +824,16 @@ export default function OnboardingPage() {
                 ) : (
                   // Si hay preguntas, mostrar una a la vez
                   <>
+                    {/* Alertas informativas */}
+                {profile && Object.values(answersData).filter(a => a && a.trim() && a !== '[RESPUESTA_EXISTENTE]').length >= 3 && (
+                  <Alert className="bg-green-50 border-green-200 mb-4">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-green-800">
+                      <strong>✓ Completado:</strong> Ya tienes {Object.values(answersData).filter(a => a && a.trim() && a !== '[RESPUESTA_EXISTENTE]').length} respuestas nuevas guardadas. Puedes continuar cuando estés listo.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                     {/* Contador y progreso */}
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
@@ -901,7 +841,11 @@ export default function OnboardingPage() {
                           Pregunta {currentQuestionIndex + 1} de {securityQuestions.length}
                         </p>
                         <p className="text-sm font-bold text-primary">
-                          Respondidas: {Object.values(answersData).filter(a => a && a.trim()).length}/3
+                          Respondidas: {
+                            Object.values(answersData).filter(a => 
+                              a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+                            ).length
+                          }/{Math.min(securityQuestions.length, 3)}
                         </p>
                       </div>
                       
@@ -910,7 +854,7 @@ export default function OnboardingPage() {
                         <div
                           className="bg-primary h-2 rounded-full transition-all duration-300"
                           style={{
-                            width: `${((currentQuestionIndex + 1) / securityQuestions.length) * 100}%`
+                            width: `${Math.min(100, ((currentQuestionIndex + 1) / securityQuestions.length) * 100)}%`
                           }}
                         />
                       </div>
@@ -918,20 +862,41 @@ export default function OnboardingPage() {
 
                     {/* Pregunta actual */}
                     <div className="bg-muted p-4 rounded-lg">
-                      <p className="text-lg font-semibold text-foreground">
-                        {securityQuestions[currentQuestionIndex].question_text}
-                      </p>
+                      <div className="flex justify-between items-start gap-2">
+                        <p className="text-lg font-semibold text-foreground flex-1">
+                          {securityQuestions[currentQuestionIndex].question_text}
+                        </p>
+                        {(answersData[securityQuestions[currentQuestionIndex].id]?.trim() && 
+                          answersData[securityQuestions[currentQuestionIndex].id] !== '[RESPUESTA_EXISTENTE]') && (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
+                            ✓ Respondida (nuevo)
+                          </span>
+                        )}
+                        {answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]' && (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">
+                            ✓ Respondida (anterior)
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Input para respuesta */}
                     <div className="space-y-2">
                       <Label htmlFor="current_answer">
-                        Tu respuesta
+                        Tu respuesta *
                       </Label>
                       <Input
                         id="current_answer"
-                        placeholder="Escribe tu respuesta..."
-                        value={answersData[securityQuestions[currentQuestionIndex].id] || ''}
+                        placeholder={
+                          answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
+                            ? 'Ya respondiste esta pregunta. Escribe una nueva respuesta para cambiarla...'
+                            : 'Escribe tu respuesta...'
+                        }
+                        value={
+                          answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
+                            ? ''
+                            : (answersData[securityQuestions[currentQuestionIndex].id] || '')
+                        }
                         onChange={(e) =>
                           setAnswersData({
                             ...answersData,
@@ -941,9 +906,12 @@ export default function OnboardingPage() {
                         className="text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        {answersData[securityQuestions[currentQuestionIndex].id]?.trim() 
-                          ? '✓ Respuesta guardada' 
-                          : 'Sin respuesta aún'}
+                        {(answersData[securityQuestions[currentQuestionIndex].id]?.trim() && 
+                          answersData[securityQuestions[currentQuestionIndex].id] !== '[RESPUESTA_EXISTENTE]')
+                          ? `✓ Nueva respuesta (${answersData[securityQuestions[currentQuestionIndex].id].length} caracteres)` 
+                          : answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
+                            ? 'Tienes una respuesta anterior. Escribe una nueva si deseas cambiarla.'
+                            : 'Sin respuesta nueva aún'}
                       </p>
                     </div>
 
@@ -967,25 +935,77 @@ export default function OnboardingPage() {
                       </Button>
                     </div>
 
-                    {/* Selector rápido de preguntas */}
+                    {/* Selector rápido de preguntas con indicadores */}
                     {securityQuestions.length > 3 && (
                       <div className="space-y-2">
                         <p className="text-xs font-medium text-muted-foreground">Navegar rápido:</p>
                         <div className="flex flex-wrap gap-2">
-                          {securityQuestions.map((q, idx) => (
-                            <Button
-                              key={q.id}
-                              size="sm"
-                              variant={currentQuestionIndex === idx ? 'default' : 'outline'}
-                              onClick={() => setCurrentQuestionIndex(idx)}
-                              className="w-10 h-10 p-0"
-                            >
-                              {idx + 1}
-                            </Button>
-                          ))}
+                          {securityQuestions.map((q, idx) => {
+                            const answerValue = answersData[q.id];
+                            const hasNewAnswer = answerValue && answerValue.trim() && answerValue !== '[RESPUESTA_EXISTENTE]';
+                            const hasOldAnswer = answerValue === '[RESPUESTA_EXISTENTE]';
+                            return (
+                              <Button
+                                key={q.id}
+                                size="sm"
+                                variant={
+                                  currentQuestionIndex === idx 
+                                    ? 'default' 
+                                    : hasNewAnswer 
+                                      ? 'secondary' 
+                                      : 'outline'
+                                }
+                                onClick={() => setCurrentQuestionIndex(idx)}
+                                className="w-10 h-10 p-0 relative"
+                                title={
+                                  hasNewAnswer 
+                                    ? 'Nueva respuesta' 
+                                    : hasOldAnswer 
+                                      ? 'Respondida anteriormente'
+                                      : 'No respondida'
+                                }
+                              >
+                                {idx + 1}
+                                {hasNewAnswer && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full"></span>}
+                                {hasOldAnswer && <span className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full"></span>}
+                              </Button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
+
+                    {/* Resumen de respuestas */}
+                    <div className="bg-muted p-3 rounded-lg">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Resumen:</p>
+                      <ul className="text-xs space-y-1">
+                        {securityQuestions.map((q, idx) => {
+                          const answerValue = answersData[q.id];
+                          const hasNewAnswer = answerValue && answerValue.trim() && answerValue !== '[RESPUESTA_EXISTENTE]';
+                          const hasOldAnswer = answerValue === '[RESPUESTA_EXISTENTE]';
+                          return (
+                            <li key={q.id} className="flex items-center gap-2">
+                              {hasNewAnswer ? (
+                                <span className="text-green-600">✓</span>
+                              ) : hasOldAnswer ? (
+                                <span className="text-blue-600">✓</span>
+                              ) : (
+                                <span className="text-muted-foreground">○</span>
+                              )}
+                              <span className="text-muted-foreground">
+                                P{idx + 1}: {
+                                  hasNewAnswer 
+                                    ? 'Nueva respuesta' 
+                                    : hasOldAnswer 
+                                      ? 'Respondida (anterior)' 
+                                      : 'Sin responder'
+                                }
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   </>
                 )}
 
@@ -1001,7 +1021,14 @@ export default function OnboardingPage() {
                   </Button>
                   <Button
                     onClick={saveSecurityQuestions}
-                    disabled={loading || (securityQuestions.length > 0 && Object.values(answersData).filter(a => a && a.trim()).length < 3)}
+                    disabled={
+                      loading || (
+                        securityQuestions.length > 0 && 
+                        Object.values(answersData).filter(a => 
+                          a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+                        ).length < 3
+                      )
+                    }
                     className="flex-1 gap-2"
                   >
                     {loading ? (
@@ -1022,71 +1049,68 @@ export default function OnboardingPage() {
 
             {/* PASO 3: PIN DE SEGURIDAD */}
             {currentStep === 2 && (
-              <div className="space-y-6">
-                <p className="text-sm text-muted-foreground">
+              <div className="space-y-8">
+                <p className="text-base text-muted-foreground font-medium">
                   {steps[2].description}
                 </p>
 
+                {/* PIN avanzado: casillas separadas */}
                 <div className="space-y-2">
-                  <Label htmlFor="pin">
-                    PIN (4-6 dígitos) *
+                  <Label htmlFor="pin" className="font-semibold text-lg">
+                    PIN de Seguridad (4-6 dígitos) *
                   </Label>
-                  <div className="relative">
-                    <Input
-                      id="pin"
-                      type={showPin ? 'text' : 'password'}
-                      placeholder="••••"
-                      maxLength={6}
-                      value={securityData.pin}
-                      onChange={(e) =>
-                        setSecurityData({
-                          ...securityData,
-                          pin: e.target.value.replace(/\D/g, ''),
-                        })
-                      }
-                    />
+                  <PinInput
+                    length={6}
+                    value={securityData.pin}
+                    onChange={(val: string) => setSecurityData({ ...securityData, pin: val.replace(/\D/g, '') })}
+                    isPassword={!showPin}
+                  />
+                  <div className="flex items-center gap-2 mt-2">
                     <button
                       type="button"
                       onClick={() => setShowPin(!showPin)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="text-muted-foreground hover:text-foreground text-xs"
                     >
-                      {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPin ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
                     </button>
+                    <span className="text-xs text-muted-foreground">Solo dígitos numéricos</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Solo dígitos numéricos. Ejemplo: 123456
-                  </p>
                 </div>
 
+                {/* Confirmar PIN avanzado */}
                 <div className="space-y-2">
-                  <Label htmlFor="pin_confirm">
+                  <Label htmlFor="pin_confirm" className="font-semibold text-lg">
                     Confirmar PIN *
                   </Label>
-                  <div className="relative">
-                    <Input
-                      id="pin_confirm"
-                      type={showPinConfirm ? 'text': ' password'}
-                      placeholder="••••"
-                      maxLength={6}
-                      value={securityData.pin_confirm}
-                      onChange={(e) =>
-                        setSecurityData({
-                          ...securityData,
-                          pin_confirm: e.target.value.replace(/\D/g, ''),
-                        })
-                      }
-                    />
+                  <PinInput
+                    length={6}
+                    value={securityData.pin_confirm}
+                    onChange={(val: string) => setSecurityData({ ...securityData, pin_confirm: val.replace(/\D/g, '') })}
+                    isPassword={!showPinConfirm}
+                  />
+                  <div className="flex items-center gap-2 mt-2">
                     <button
                       type="button"
                       onClick={() => setShowPinConfirm(!showPinConfirm)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="text-muted-foreground hover:text-foreground text-xs"
                     >
-                      {showPinConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPinConfirm ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPinConfirm ? 'Ocultar PIN' : 'Mostrar PIN'}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                {/* Feedback visual de coincidencia */}
+                <div className="flex items-center gap-2">
+                  {securityData.pin && securityData.pin_confirm && (
+                    securityData.pin === securityData.pin_confirm ? (
+                      <span className="text-green-600 text-sm font-semibold flex items-center gap-1"><CheckCircle className="w-4 h-4" /> PINs coinciden</span>
+                    ) : (
+                      <span className="text-destructive text-sm font-semibold flex items-center gap-1"><AlertCircle className="w-4 h-4" /> PINs no coinciden</span>
+                    )
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setCurrentStep(1)}
@@ -1115,6 +1139,7 @@ export default function OnboardingPage() {
                 </div>
               </div>
             )}
+
 
             {/* Indicador de Progreso */}
             <div className="mt-8 space-y-2">

@@ -69,12 +69,12 @@ export async function checkProfileCompletion(
 
     // 2. Verificar PIN de seguridad
     const { data: securityPin, error: pinError } = await supabase
-      .from('user_security_pins')
-      .select('id, is_enabled')
+      .from('security_pins')
+      .select('id, is_active')
       .eq('user_id', userId)
       .single()
 
-    const securityPinComplete = securityPin?.is_enabled === true
+    const securityPinComplete = securityPin?.is_active === true
 
     if (!securityPinComplete) {
       missingFields.push('PIN de seguridad')
@@ -158,7 +158,7 @@ export async function getSecurityQuestions(supabase: any) {
     const { data, error } = await supabase
       .from('security_questions')
       .select('id, question_text')
-      .eq('is_active', true)
+    // Sin filtro por is_active para asegurar que siempre se muestren
 
     if (error) throw error
 
@@ -188,15 +188,17 @@ export async function saveSecurityAnswers(
       .delete()
       .eq('user_id', userId)
 
-    // Insertar nuevas respuestas
+    // Insertar nuevas respuestas (solo las que tienen contenido)
     const { error } = await supabase
       .from('user_security_answers')
       .insert(
-        answers.map((a) => ({
-          user_id: userId,
-          question_id: a.question_id,
-          answer_hash: a.answer, // En producción, hashear esto
-        }))
+        answers
+          .filter(a => a.answer && a.answer.trim())
+          .map((a) => ({
+            user_id: userId,
+            question_id: a.question_id,
+            answer_hash: a.answer.trim().toLowerCase(), // Almacenar normalizado (lowercase) para comparación
+          }))
       )
 
     if (error) throw error

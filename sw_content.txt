@@ -21,7 +21,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_STATIC).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.log("Error al agregar assets estáticos:", err)
+        /* eslint-disable */console.log(...oo_oo(`3093330412_24_8_24_62_4`,"Error al agregar assets estáticos:", err))
       })
     }).then(() => self.skipWaiting())
   )
@@ -211,11 +211,11 @@ async function syncPendingData() {
           })
         }
       } catch (error) {
-        console.log("Error sincronizando:", error)
+        /* eslint-disable */console.log(...oo_oo(`3093330412_214_8_214_50_4`,"Error sincronizando:", error))
       }
     }
   } catch (error) {
-    console.log("Error en background sync:", error)
+    /* eslint-disable */console.log(...oo_oo(`3093330412_218_4_218_51_4`,"Error en background sync:", error))
   }
 }
 
@@ -313,7 +313,7 @@ self.addEventListener("push", (event) => {
       })
     } catch (e) {
       // ignore
-      console.log('SW: error persisting notification to server', e)
+      /* eslint-disable */console.log(...oo_oo(`3093330412_316_6_316_67_4`,'SW: error persisting notification to server', e))
     }
 
     // Save locally to IndexedDB
@@ -327,7 +327,7 @@ self.addEventListener("push", (event) => {
         req.onerror = () => reject(req.error)
       })
     } catch (e) {
-      console.log('SW: error saving notification locally', e)
+      /* eslint-disable */console.log(...oo_oo(`3093330412_330_6_330_61_4`,'SW: error saving notification locally', e))
     }
   })())
 })
@@ -356,15 +356,4 @@ self.addEventListener("notificationclick", (event) => {
       }
       // Si no hay ventana abierta, abrir una nueva
       if (clients.openWindow) {
-        return clients.openWindow(urlToOpen)
-      }
-    }).catch((err) => {
-      console.log("Error en notificationclick:", err)
-    })
-  )
-})
-
-// Close notification
-self.addEventListener("notificationclose", (event) => {
-  console.log("Notificación cerrada:", event.notification)
-})
+        r

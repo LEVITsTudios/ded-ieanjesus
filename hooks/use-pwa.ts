@@ -146,8 +146,8 @@ export function usePWA() {
       if (Notification.permission === "granted") {
         const registration = await navigator.serviceWorker.ready
         registration.showNotification(title, {
-          icon: "/icon-192x192.png",
-          badge: "/icon-192x192.png",
+          icon: "/placeholder-logo.svg",
+          badge: "/placeholder-logo.svg",
           ...options
         })
         // Persist notification server-side
