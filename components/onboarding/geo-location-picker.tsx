@@ -88,7 +88,7 @@ export function GeoLocationPicker({ onLocationSelect, initialLocation, loading =
     setError(null)
 
     if (!navigator.geolocation) {
-      setError('Geolocalización no disponible en tu navegador')
+      setError('❌ Geolocalización no disponible en tu navegador. Por favor, usa clic en el mapa para seleccionar tu ubicación.')
       setIsLoading(false)
       return
     }
@@ -98,12 +98,40 @@ export function GeoLocationPicker({ onLocationSelect, initialLocation, loading =
         await updateLocation(position.coords.latitude, position.coords.longitude)
         setIsLoading(false)
       },
-      (err) => {
-        console.error('Geolocation error:', err)
-        setError('Acceso a ubicación denegado. Por favor habilítalo en los permisos del navegador.')
+      (err: GeolocationPositionError) => {
+        let errorMessage = 'Error desconocido en geolocalización'
+        
+        // Manejar códigos de error específicos
+        switch (err.code) {
+          case err.PERMISSION_DENIED:
+            errorMessage = '❌ Permiso denegado: Por favor habilita el acceso a ubicación en los permisos del navegador.'
+            break
+          case err.POSITION_UNAVAILABLE:
+            errorMessage = '⚠️ Ubicación no disponible: No se puede obtener tu posición GPS. Intenta en un lugar abierto.'
+            break
+          case err.TIMEOUT:
+            errorMessage = '⏱️ Tiempo agotado: Tomó demasiado tiempo obtener la ubicación. Por favor intenta de nuevo.'
+            break
+          default:
+            if (err.message) {
+              errorMessage = `❌ Error: ${err.message}`
+            }
+        }
+        
+        console.error('[Geolocation Error]', {
+          code: err.code,
+          message: err.message,
+          timestamp: new Date().toISOString()
+        })
+        
+        setError(`${errorMessage} Puedes hacer clic en el mapa para seleccionar tu ubicación manualmente.`)
         setIsLoading(false)
       },
-      { timeout: 10000, enableHighAccuracy: true }
+      { 
+        timeout: 10000, 
+        enableHighAccuracy: true,
+        maximumAge: 0 
+      }
     )
   }
 

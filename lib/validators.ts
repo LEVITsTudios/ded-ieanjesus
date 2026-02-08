@@ -222,3 +222,32 @@ export function splitFullName(fullName: string): { firstName: string; lastName: 
   }
   return { firstName: fullName, lastName: '' }
 }
+
+/**
+ * Validar contraseña (fuerte)
+ * Requisitos: Mínimo 8 caracteres, mayúsculas, minúsculas, números
+ */
+export function validatePassword(password: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  if (!password || password.length < 8) {
+    errors.push('Mínimo 8 caracteres')
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    errors.push('Debe contener letras mayúsculas')
+  }
+
+  if (!/[a-z]/.test(password)) {
+    errors.push('Debe contener letras minúsculas')
+  }
+
+  if (!/\d/.test(password)) {
+    errors.push('Debe contener números')
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  }
+}
