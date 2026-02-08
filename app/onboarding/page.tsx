@@ -113,6 +113,7 @@ export default function OnboardingPage() {
   })
 
   const [answersData, setAnswersData] = useState<Record<string, string>>({})
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
 
   const steps = [
     {
@@ -721,57 +722,123 @@ export default function OnboardingPage() {
             {/* PASO 2: PREGUNTAS DE SEGURIDAD */}
             {currentStep === 1 && (
               <div className="space-y-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {steps[1].description} (Responde al menos 3)
-                  </p>
-                  {securityQuestions.length > 0 && (
-                    <div className="mt-2 p-2 bg-muted rounded text-xs">
-                      Respondidas: <span className="font-bold">{Object.values(answersData).filter(a => a && a.trim()).length}</span> / 3
-                    </div>
-                  )}
-                </div>
-
                 {securityQuestions.length === 0 ? (
+                  // Si no hay preguntas
                   <Alert variant="default" className="mb-6">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>No hay preguntas de seguridad disponibles. Puedes continuar al siguiente paso.</AlertDescription>
                   </Alert>
                 ) : (
-                  <div className="space-y-4">
-                    {securityQuestions.map((question, idx) => (
-                      <div key={question.id} className="space-y-2">
-                        <Label htmlFor={`question_${question.id}`}>
-                          {idx + 1}. {question.question_text}
-                        </Label>
-                        <Input
-                          id={`question_${question.id}`}
-                          placeholder="Tu respuesta..."
-                          value={answersData[question.id] || ''}
-                          onChange={(e) =>
-                            setAnswersData({
-                              ...answersData,
-                              [question.id]: e.target.value,
-                            })
-                          }
+                  // Si hay preguntas, mostrar una a la vez
+                  <>
+                    {/* Contador y progreso */}
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm font-medium">
+                          Pregunta {currentQuestionIndex + 1} de {securityQuestions.length}
+                        </p>
+                        <p className="text-sm font-bold text-primary">
+                          Respondidas: {Object.values(answersData).filter(a => a && a.trim()).length}/3
+                        </p>
+                      </div>
+                      
+                      {/* Barra de progreso visual */}
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div
+                          className="bg-primary h-2 rounded-full transition-all duration-300"
+                          style={{
+                            width: `${((currentQuestionIndex + 1) / securityQuestions.length) * 100}%`
+                          }}
                         />
                       </div>
-                    ))}
-                  </div>
+                    </div>
+
+                    {/* Pregunta actual */}
+                    <div className="bg-muted p-4 rounded-lg">
+                      <p className="text-lg font-semibold text-foreground">
+                        {securityQuestions[currentQuestionIndex].question_text}
+                      </p>
+                    </div>
+
+                    {/* Input para respuesta */}
+                    <div className="space-y-2">
+                      <Label htmlFor="current_answer">
+                        Tu respuesta
+                      </Label>
+                      <Input
+                        id="current_answer"
+                        placeholder="Escribe tu respuesta..."
+                        value={answersData[securityQuestions[currentQuestionIndex].id] || ''}
+                        onChange={(e) =>
+                          setAnswersData({
+                            ...answersData,
+                            [securityQuestions[currentQuestionIndex].id]: e.target.value,
+                          })
+                        }
+                        className="text-base"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {answersData[securityQuestions[currentQuestionIndex].id]?.trim() 
+                          ? '✓ Respuesta guardada' 
+                          : 'Sin respuesta aún'}
+                      </p>
+                    </div>
+
+                    {/* Navegación entre preguntas */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+                        disabled={currentQuestionIndex === 0}
+                        className="flex-1"
+                      >
+                        ← Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setCurrentQuestionIndex(Math.min(securityQuestions.length - 1, currentQuestionIndex + 1))}
+                        disabled={currentQuestionIndex === securityQuestions.length - 1}
+                        className="flex-1"
+                      >
+                        Siguiente →
+                      </Button>
+                    </div>
+
+                    {/* Selector rápido de preguntas */}
+                    {securityQuestions.length > 3 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Navegar rápido:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {securityQuestions.map((q, idx) => (
+                            <Button
+                              key={q.id}
+                              size="sm"
+                              variant={currentQuestionIndex === idx ? 'default' : 'outline'}
+                              onClick={() => setCurrentQuestionIndex(idx)}
+                              className="w-10 h-10 p-0"
+                            >
+                              {idx + 1}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                <div className="flex gap-2">
+                {/* Botones principales */}
+                <div className="flex gap-2 pt-4 border-t">
                   <Button
                     variant="outline"
                     onClick={() => setCurrentStep(0)}
                     disabled={loading}
                     className="flex-1"
                   >
-                    Atrás
+                    ← Atrás
                   </Button>
                   <Button
                     onClick={saveSecurityQuestions}
-                    disabled={loading}
+                    disabled={loading || (securityQuestions.length > 0 && Object.values(answersData).filter(a => a && a.trim()).length < 3)}
                     className="flex-1 gap-2"
                   >
                     {loading ? (
@@ -782,7 +849,7 @@ export default function OnboardingPage() {
                     ) : (
                       <>
                         <CheckCircle className="w-4 h-4" />
-                        Continuar a PIN
+                        Continuar a PIN →
                       </>
                     )}
                   </Button>
