@@ -70,15 +70,21 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   // Calcular suma ponderada (primeros 9 dígitos)
   for (let i = 0; i < 9; i++) {
     let product = digits[i] * weights[i]
-    // Si el producto es >= 10, restar 9 (es el método correcto del SRI)
-    if (product >= 10) product = product - 9
+    
+    // Si el producto es >= 10, sumar sus dígitos
+    // Ej: 48 → 4 + 8 = 12; 15 → 1 + 5 = 6
+    if (product >= 10) {
+      product = Math.floor(product / 10) + (product % 10)
+    }
+    
     sum += product
   }
 
-  // Calcular dígito verificador
-  // 10 - (suma % 10), pero si result es 10, usar 0
-  let checkDigit = 10 - (sum % 10)
-  if (checkDigit === 10) {
+  // Calcular dígito verificador: 11 - (sum % 11)
+  let checkDigit = 11 - (sum % 11)
+  
+  // Si el resultado es 10 u 11, usar 0
+  if (checkDigit === 10 || checkDigit === 11) {
     checkDigit = 0
   }
   
