@@ -721,30 +721,44 @@ export default function OnboardingPage() {
             {/* PASO 2: PREGUNTAS DE SEGURIDAD */}
             {currentStep === 1 && (
               <div className="space-y-6">
-                <p className="text-sm text-muted-foreground">
-                  {steps[1].description} (Responde al menos 3)
-                </p>
-
-                <div className="space-y-4">
-                  {(securityQuestions && Array.isArray(securityQuestions) ? securityQuestions : []).map((question, idx) => (
-                    <div key={question.id} className="space-y-2">
-                      <Label htmlFor={`question_${question.id}`}>
-                        {idx + 1}. {question.question_text}
-                      </Label>
-                      <Input
-                        id={`question_${question.id}`}
-                        placeholder="Tu respuesta..."
-                        value={answersData[question.id] || ''}
-                        onChange={(e) =>
-                          setAnswersData({
-                            ...answersData,
-                            [question.id]: e.target.value,
-                          })
-                        }
-                      />
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {steps[1].description} (Responde al menos 3)
+                  </p>
+                  {securityQuestions.length > 0 && (
+                    <div className="mt-2 p-2 bg-muted rounded text-xs">
+                      Respondidas: <span className="font-bold">{Object.values(answersData).filter(a => a && a.trim()).length}</span> / 3
                     </div>
-                  ))}
+                  )}
                 </div>
+
+                {securityQuestions.length === 0 ? (
+                  <Alert variant="default" className="mb-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>No hay preguntas de seguridad disponibles. Puedes continuar al siguiente paso.</AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-4">
+                    {securityQuestions.map((question, idx) => (
+                      <div key={question.id} className="space-y-2">
+                        <Label htmlFor={`question_${question.id}`}>
+                          {idx + 1}. {question.question_text}
+                        </Label>
+                        <Input
+                          id={`question_${question.id}`}
+                          placeholder="Tu respuesta..."
+                          value={answersData[question.id] || ''}
+                          onChange={(e) =>
+                            setAnswersData({
+                              ...answersData,
+                              [question.id]: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button
