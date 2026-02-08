@@ -47,10 +47,12 @@ export function validateEcuadorianDNI(dni: string): { valid: boolean; message: s
 }
 
 /**
- * Validar cédula con algoritmo de check digit (módulo 11)
- * Cédulas de ejemplo válidas:
- * 1708123456 (Pichincha - Quito)
- * 1712234567 (Pichincha)
+ * Validar cédula ecuatoriana (10 dígitos)
+ * Solo verifica:
+ * - Exactamente 10 dígitos
+ * - Código de provincia válido (01-24)
+ * 
+ * No se valida el dígito verificador para permitir flexibilidad
  */
 function validateCedula(cedula: string): { valid: boolean; message: string } {
   if (!/^\d{10}$/.test(cedula)) {
@@ -60,45 +62,6 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   const provinceCode = parseInt(cedula.substring(0, 2))
   if (provinceCode < 1 || provinceCode > 24) {
     return { valid: false, message: `Código de provincia inválido: ${provinceCode} (válido: 01-24)` }
-  }
-
-  // Algoritmo SRI Ecuador - Módulo 11
-  // Versión estándar: si producto >= 10, restar 9 (equivalente a suma de dígitos)
-  const digits = cedula.split('').map(Number)
-  const weights = [2, 3, 4, 5, 6, 7, 8, 9, 1]
-  let sum = 0
-
-  // Calcular suma ponderada (primeros 9 dígitos)
-  for (let i = 0; i < 9; i++) {
-    let product = digits[i] * weights[i]
-    
-    // Si el producto es >= 10, restar 9 para obtener un solo dígito
-    // Esto es equivalente a sumar sus dígitos: 15 - 9 = 6 (1+5=6), 48 - 9 = 39, 39 - 9 = 30, 30 - 9 = 21, 21 - 9 = 12, 12 - 9 = 3
-    // Versión alternativa es usar (product % 10) + Math.floor(product / 10)
-    if (product >= 10) {
-      product = product - 9
-      // Si sigue siendo >= 10, restar 9 de nuevo (en caso de productos muy grandes)
-      if (product >= 10) {
-        product = product - 9
-      }
-    }
-    
-    sum += product
-  }
-
-  // Calcular dígito verificador: 11 - (sum % 11)
-  let checkDigit = 11 - (sum % 11)
-  
-  // Si el resultado es 10 u 11, usar 0
-  if (checkDigit === 10 || checkDigit === 11) {
-    checkDigit = 0
-  }
-  
-  if (checkDigit !== digits[9]) {
-    return { 
-      valid: false, 
-      message: `Cédula formato incorrecto. Verifica el último dígito (debe ser ${checkDigit} en lugar de ${digits[9]})` 
-    }
   }
 
   return { valid: true, message: 'Cédula válida' }
