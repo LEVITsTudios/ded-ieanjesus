@@ -36,17 +36,18 @@ import { Loader2, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { GeoLocationPicker } from '@/components/onboarding/geo-location-picker'
 
 // Preguntas de seguridad por defecto (fallback si no carga de BD)
+// Usando UUIDs consistentes para compatibilidad con BD
 const DEFAULT_SECURITY_QUESTIONS = [
-  { id: 'q1', question_text: '¿Cuál es el nombre de tu primera mascota?' },
-  { id: 'q2', question_text: '¿En qué ciudad naciste?' },
-  { id: 'q3', question_text: '¿Cuál es el nombre de tu mejor amigo de la infancia?' },
-  { id: 'q4', question_text: '¿Cuál es el nombre de tu escuela primaria?' },
-  { id: 'q5', question_text: '¿Cuál es tu comida favorita?' },
-  { id: 'q6', question_text: '¿Cuál es el segundo nombre de tu madre?' },
-  { id: 'q7', question_text: '¿En qué año te graduaste de secundaria?' },
-  { id: 'q8', question_text: '¿Cuál es el nombre de la calle donde creciste?' },
-  { id: 'q9', question_text: '¿Cuál fue tu primer trabajo?' },
-  { id: 'q10', question_text: '¿Cuál es tu película favorita?' },
+  { id: '550e8400-e29b-41d4-a716-446655440001', question_text: '¿Cuál es el nombre de tu primera mascota?' },
+  { id: '550e8400-e29b-41d4-a716-446655440002', question_text: '¿En qué ciudad naciste?' },
+  { id: '550e8400-e29b-41d4-a716-446655440003', question_text: '¿Cuál es el nombre de tu mejor amigo de la infancia?' },
+  { id: '550e8400-e29b-41d4-a716-446655440004', question_text: '¿Cuál es el nombre de tu escuela primaria?' },
+  { id: '550e8400-e29b-41d4-a716-446655440005', question_text: '¿Cuál es tu comida favorita?' },
+  { id: '550e8400-e29b-41d4-a716-446655440006', question_text: '¿Cuál es el segundo nombre de tu madre?' },
+  { id: '550e8400-e29b-41d4-a716-446655440007', question_text: '¿En qué año te graduaste de secundaria?' },
+  { id: '550e8400-e29b-41d4-a716-446655440008', question_text: '¿Cuál es el nombre de la calle donde creciste?' },
+  { id: '550e8400-e29b-41d4-a716-446655440009', question_text: '¿Cuál fue tu primer trabajo?' },
+  { id: '550e8400-e29b-41d4-a716-446655440010', question_text: '¿Cuál es tu película favorita?' },
 ]
 
 interface FormData {
