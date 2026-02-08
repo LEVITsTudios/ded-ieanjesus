@@ -160,8 +160,13 @@ export default function OnboardingPage() {
       }
 
       // Cargar preguntas de seguridad
-      const questions = await getSecurityQuestions(supabase)
-      setSecurityQuestions(questions)
+      try {
+        const questions = await getSecurityQuestions(supabase)
+        setSecurityQuestions(questions || [])
+      } catch (qErr) {
+        console.error('Error loading security questions:', qErr)
+        setSecurityQuestions([])
+      }
 
       setLoading(false)
     } catch (err) {
@@ -693,7 +698,7 @@ export default function OnboardingPage() {
                 </p>
 
                 <div className="space-y-4">
-                  {securityQuestions.map((question, idx) => (
+                  {(securityQuestions && Array.isArray(securityQuestions) ? securityQuestions : []).map((question, idx) => (
                     <div key={question.id} className="space-y-2">
                       <Label htmlFor={`question_${question.id}`}>
                         {idx + 1}. {question.question_text}
