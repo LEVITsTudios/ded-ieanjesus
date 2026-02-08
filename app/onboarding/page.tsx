@@ -91,6 +91,13 @@ export default function OnboardingPage() {
   const [showPin, setShowPin] = useState(false)
   const [showPinConfirm, setShowPinConfirm] = useState(false)
   const [geoLoading, setGeoLoading] = useState(false)
+  const [checkingDuplicate, setCheckingDuplicate] = useState<'dni' | 'phone' | 'email' | null>(null)
+  const [dniValidation, setDniValidation] = useState<{ valid: boolean; message: string; isDuplicate: boolean }>(
+    { valid: false, message: '', isDuplicate: false }
+  )
+  const [phoneValidation, setPhoneValidation] = useState<{ valid: boolean; message: string; isDuplicate: boolean; formatted?: string }>(
+    { valid: false, message: '', isDuplicate: false }
+  )
 
   const [formData, setFormData] = useState<FormData>({
     full_name: '',
@@ -225,9 +232,9 @@ export default function OnboardingPage() {
     if (!formData.dni || !formData.dni.trim()) {
       errors.dni = 'La cédula es requerida'
     } else {
-      const dniValidation = validateEcuadorianDNI(formData.dni)
-      if (!dniValidation.valid) {
-        errors.dni = dniValidation.message
+      // Verificar validación en tiempo real
+      if (!dniValidation.valid || dniValidation.isDuplicate) {
+        errors.dni = dniValidation.message || 'DNI inválido o duplicado'
       }
     }
 
@@ -235,9 +242,9 @@ export default function OnboardingPage() {
     if (!formData.phone || !formData.phone.trim()) {
       errors.phone = 'El teléfono es requerido'
     } else {
-      const phoneValidation = validateEcuadorianPhone(formData.phone)
-      if (!phoneValidation.valid) {
-        errors.phone = phoneValidation.message
+      // Verificar validación en tiempo real
+      if (!phoneValidation.valid || phoneValidation.isDuplicate) {
+        errors.phone = phoneValidation.message || 'Teléfono inválido o duplicado'
       }
     }
 
@@ -450,6 +457,93 @@ export default function OnboardingPage() {
     if (fieldErrors[field]) {
       setFieldErrors({ ...fieldErrors, [field]: '' })
     }
+
+    // Validación en tiempo real para DNI
+    if (field === 'dni') {
+      validateDniRealtime(value)
+    }
+  }
+
+  const validateDniRealtime = async (value: string) => {
+    const cleaned = value.replace(/\D/g, '')
+    
+    // Si está vacío, limpiar validación
+    if (!cleaned) {
+      setDniValidation({ valid: false, message: '', isDuplicate: false })
+      return
+    }
+
+    // Validar formato
+    const validation = validateEcuadorianDNI(cleaned)
+    if (!validation.valid) {
+      setDniValidation({ valid: false, message: validation.message, isDuplicate: false })
+      return
+    }
+
+    // Verificar duplicado
+    try {
+      setCheckingDuplicate('dni')
+      const response = await fetch(`/api/check-duplicates?dni=${cleaned}&currentUserId=${user?.id || ''}`)
+      const result = await response.json()
+      
+      if (result.exists) {
+        setDniValidation({ valid: false, message: result.message, isDuplicate: true })
+      } else {
+        setDniValidation({ valid: true, message: '✓ DNI válido y disponible', isDuplicate: false })
+      }
+    } catch (error) {
+      console.error('Error checking DNI duplicate:', error)
+      setDniValidation({ valid: true, message: '✓ DNI válido', isDuplicate: false })
+    } finally {
+      setCheckingDuplicate(null)
+    }
+  }
+
+  const validatePhoneRealtime = async (value: string) => {
+    if (!value) {
+      setPhoneValidation({ valid: false, message: '', isDuplicate: false })
+      return
+    }
+
+    const validation = validateEcuadorianPhone(value)
+    if (!validation.valid) {
+      setPhoneValidation({ valid: false, message: validation.message, isDuplicate: false })
+      return
+    }
+
+    // Verificar duplicado
+    try {
+      setCheckingDuplicate('phone')
+      const formattedPhone = validation.formatted?.replace(/\s/g, '') || value
+      const response = await fetch(`/api/check-duplicates?phone=${encodeURIComponent(formattedPhone)}&currentUserId=${user?.id || ''}`)
+      const result = await response.json()
+      
+      if (result.exists) {
+        setPhoneValidation({ 
+          valid: false, 
+          message: result.message, 
+          isDuplicate: true,
+          formatted: validation.formatted
+        })
+      } else {
+        setPhoneValidation({ 
+          valid: true, 
+          message: `✓ Teléfono válido (${validation.message.includes('celular') ? 'celular' : 'fijo'})`,
+          isDuplicate: false,
+          formatted: validation.formatted
+        })
+      }
+    } catch (error) {
+      console.error('Error checking phone duplicate:', error)
+      setPhoneValidation({ 
+        valid: true, 
+        message: validation.message, 
+        isDuplicate: false,
+        formatted: validation.formatted
+      })
+    } finally {
+      setCheckingDuplicate(null)
+    }
   }
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -463,6 +557,9 @@ export default function OnboardingPage() {
     if (fieldErrors.phone) {
       setFieldErrors({ ...fieldErrors, phone: '' })
     }
+
+    // Validación en tiempo real para teléfono
+    validatePhoneRealtime(cleaned)
   }
 
   if (loading && currentStep === 0) {
@@ -553,19 +650,49 @@ export default function OnboardingPage() {
                 {/* DNI/Cedula (CRÍTICO PARA ECUADOR) */}
                 <div className="space-y-2">
                   <Label htmlFor="dni">
-                    Cédula de Identidad (DNI) *
+                    Cédula de Identidad (DNI) {dniValidation.valid && '✓'} *
                   </Label>
-                  <Input
-                    id="dni"
-                    placeholder="1234567890"
-                    maxLength={10}
-                    value={formData.dni}
-                    onChange={(e) => handleInputChange('dni', e.target.value.replace(/\D/g, ''))}
-                    className={fieldErrors.dni ? 'border-destructive' : ''}
-                  />
-                  {fieldErrors.dni && (
+                  <div className="relative">
+                    <Input
+                      id="dni"
+                      placeholder="1234567890"
+                      maxLength={10}
+                      value={formData.dni}
+                      onChange={(e) => handleInputChange('dni', e.target.value.replace(/\D/g, ''))}
+                      className={
+                        fieldErrors.dni 
+                          ? 'border-destructive' 
+                          : dniValidation.valid 
+                            ? 'border-green-500' 
+                            : formData.dni && !dniValidation.valid
+                              ? 'border-destructive'
+                              : ''
+                      }
+                      disabled={checkingDuplicate === 'dni'}
+                    />
+                    {checkingDuplicate === 'dni' && (
+                      <Loader2 className="absolute right-3 top-2.5 h-5 w-5 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  
+                  {/* Mostrar validación en tiempo real */}
+                  {formData.dni && (
+                    <>
+                      {dniValidation.valid ? (
+                        <p className="text-xs text-green-600 font-semibold">{dniValidation.message}</p>
+                      ) : (
+                        <p className="text-xs text-destructive font-semibold">
+                          {dniValidation.message}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Mostrar error del formulario si existe */}
+                  {fieldErrors.dni && !formData.dni && (
                     <p className="text-xs text-destructive">{fieldErrors.dni}</p>
                   )}
+                  
                   <p className="text-xs text-muted-foreground">
                     10 dígitos. Ej: 1708123456 (Importante para identificarte en Ecuador)
                   </p>
@@ -574,21 +701,50 @@ export default function OnboardingPage() {
                 {/* Teléfono */}
                 <div className="space-y-2">
                   <Label htmlFor="phone">
-                    Teléfono *
+                    Teléfono {phoneValidation.valid && '✓'} *
                   </Label>
-                  <Input
-                    id="phone"
-                    placeholder="0963881234 o +593963881234"
-                    value={formData.phone}
-                    onChange={handlePhoneChange}
-                    className={fieldErrors.phone ? 'border-destructive' : ''}
-                  />
-                  {formData.phone && !fieldErrors.phone && (
-                    <p className="text-xs text-green-600">
-                      ✓ Formateado como: {validateEcuadorianPhone(formData.phone).formatted || formData.phone}
-                    </p>
+                  <div className="relative">
+                    <Input
+                      id="phone"
+                      placeholder="0963881234 o +593963881234"
+                      value={formData.phone}
+                      onChange={handlePhoneChange}
+                      className={
+                        fieldErrors.phone 
+                          ? 'border-destructive' 
+                          : phoneValidation.valid 
+                            ? 'border-green-500' 
+                            : formData.phone && !phoneValidation.valid
+                              ? 'border-destructive'
+                              : ''
+                      }
+                      disabled={checkingDuplicate === 'phone'}
+                    />
+                    {checkingDuplicate === 'phone' && (
+                      <Loader2 className="absolute right-3 top-2.5 h-5 w-5 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+
+                  {/* Mostrar validación en tiempo real */}
+                  {formData.phone && (
+                    <>
+                      {phoneValidation.valid ? (
+                        <>
+                          <p className="text-xs text-green-600 font-semibold">{phoneValidation.message}</p>
+                          {phoneValidation.formatted && (
+                            <p className="text-xs text-green-600">
+                              Formato: {phoneValidation.formatted}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs text-destructive font-semibold">{phoneValidation.message}</p>
+                      )}
+                    </>
                   )}
-                  {fieldErrors.phone && (
+                  
+                  {/* Mostrar error del formulario si existe */}
+                  {fieldErrors.phone && !formData.phone && (
                     <p className="text-xs text-destructive">{fieldErrors.phone}</p>
                   )}
                   <p className="text-xs text-muted-foreground">

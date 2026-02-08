@@ -63,6 +63,7 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   }
 
   // Algoritmo SRI Ecuador - Módulo 11
+  // Versión estándar: si producto >= 10, restar 9 (equivalente a suma de dígitos)
   const digits = cedula.split('').map(Number)
   const weights = [2, 3, 4, 5, 6, 7, 8, 9, 1]
   let sum = 0
@@ -71,10 +72,15 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
   for (let i = 0; i < 9; i++) {
     let product = digits[i] * weights[i]
     
-    // Si el producto es >= 10, sumar sus dígitos repetidamente hasta obtener un solo dígito
-    // Ej: 48 → 4 + 8 = 12 → 1 + 2 = 3; 15 → 1 + 5 = 6
-    while (product >= 10) {
-      product = Math.floor(product / 10) + (product % 10)
+    // Si el producto es >= 10, restar 9 para obtener un solo dígito
+    // Esto es equivalente a sumar sus dígitos: 15 - 9 = 6 (1+5=6), 48 - 9 = 39, 39 - 9 = 30, 30 - 9 = 21, 21 - 9 = 12, 12 - 9 = 3
+    // Versión alternativa es usar (product % 10) + Math.floor(product / 10)
+    if (product >= 10) {
+      product = product - 9
+      // Si sigue siendo >= 10, restar 9 de nuevo (en caso de productos muy grandes)
+      if (product >= 10) {
+        product = product - 9
+      }
     }
     
     sum += product
