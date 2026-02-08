@@ -161,8 +161,13 @@ export default function OnboardingPage() {
 
       // Cargar preguntas de seguridad
       try {
-        const questions = await getSecurityQuestions(supabase)
-        setSecurityQuestions(questions || [])
+        const result = await getSecurityQuestions(supabase)
+        if (result && result.data && Array.isArray(result.data)) {
+          setSecurityQuestions(result.data)
+        } else {
+          console.warn('Security questions format unexpected:', result)
+          setSecurityQuestions([])
+        }
       } catch (qErr) {
         console.error('Error loading security questions:', qErr)
         setSecurityQuestions([])
