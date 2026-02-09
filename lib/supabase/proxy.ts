@@ -25,7 +25,13 @@ export async function updateSession(request: NextRequest) {
 
   // Skip auth check for paths that don't need it
   const pathname = request.nextUrl.pathname
-  if (pathname.startsWith("/auth") || pathname === "/" || pathname.startsWith("/api/")) {
+  if (
+    pathname.startsWith("/auth") || 
+    pathname === "/" || 
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/public")
+  ) {
     return supabaseResponse
   }
 
@@ -74,8 +80,22 @@ export async function updateSession(request: NextRequest) {
     }
   } catch (err) {
     // Log fetch/auth errors from Supabase (e.g. network or fetch failing in edge runtime)
-    console.error('Error calling supabase.auth.getUser in middleware:', err)
-    // Continue without blocking the request; user may be unauthenticated.
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    
+    // More detailed error logging for debugging
+    if (errorMsg.includes('Refresh Token') || errorMsg.includes('refresh_token')) {
+      console.warn('[Middleware] Refresh token issue detected, redirecting to login:', errorMsg)
+      const urlRedirect = request.nextUrl.clone()
+      urlRedirect.pathname = "/auth/login"
+      return NextResponse.redirect(urlRedirect)
+    } else if (errorMsg.includes('timeout') || errorMsg.includes('Auth timeout')) {
+      console.warn('[Middleware] Auth timeout, allowing request to proceed')
+    } else {
+      console.error('[Middleware] Auth error:', errorMsg)
+    }
+    
+    // Continue without blocking the request for most errors; user may be unauthenticated.
+    // Only redirect on refresh token errors
   }
 
   return supabaseResponse

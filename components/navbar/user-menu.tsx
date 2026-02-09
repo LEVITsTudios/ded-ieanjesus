@@ -48,9 +48,22 @@ export function NavbarUser() {
   }
 
   const handleLogout = async () => {
-    const supabase = await createClient()
-    await supabase.auth.signOut()
-    router.push('/auth/login')
+    try {
+      // Usar el nuevo endpoint que limpia cookies y sesión
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        router.push('/auth/login')
+      } else {
+        console.error('Error logging out')
+      }
+    } catch (err) {
+      console.error('Logout error:', err)
+      // Fallback: al menos redirigir
+      router.push('/auth/login')
+    }
   }
 
   if (loading || !user) return null

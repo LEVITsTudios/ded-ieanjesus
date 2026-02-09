@@ -26,6 +26,15 @@ async function createAdminClient() {
   })
 }
 
+// Función para hashear PIN - DEBE coincidir con hooks/use-security.ts
+async function hashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(pin)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export async function POST(request: Request) {
   try {
     console.log('[PIN API] POST request started')
@@ -56,10 +65,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Usar bcrypt o PBKDF2 en producción - por ahora hasheamos simple
-    const pin_hash = Buffer.from(pin).toString('base64')
-
-    console.log('[PIN API] Saving PIN for user:', userId)
+    // Hash del PIN usando SHA-256 (debe coincidir con hooks/use-security.ts)
+    const pin_hash = await hashPin(pin)
+    
+    console.log('[PIN API] PIN hashed successfully')
+    console.log('[PIN API] PIN hash (first 20 chars):', pin_hash.substring(0, 20) + '...')
+    console.log('[PIN API] PIN hash length:', pin_hash.length, '(should be 64)')
 
     // Usar admin client para bypass RLS
     let supabase
@@ -72,46 +83,21 @@ export async function POST(request: Request) {
       throw adminErr
     }
 
-    // Primero verificar si ya existe un PIN para este usuario
-    console.log('[PIN API] Checking if PIN already exists for user:', userId)
-    const { data: existingPin, error: checkError } = await supabase
+    // Usar upsert para que la operación sea idempotente y evitar condiciones de carrera.
+    // Se asume que existe una constraint UNIQUE en `user_id` en la tabla `security_pins`.
+    console.log('[PIN API] Upserting PIN for user:', userId)
+    const { data, error } = await supabase
       .from('security_pins')
-      .select('id')
-      .eq('user_id', userId)
-      .single()
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('[PIN API] Error checking existing PIN:', checkError)
-      throw checkError
-    }
-
-    let result
-    if (existingPin) {
-      // Si existe, hacer UPDATE
-      console.log('[PIN API] PIN exists, updating...')
-      result = await supabase
-        .from('security_pins')
-        .update({
-          pin_hash,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId)
-        .select()
-    } else {
-      // Si no existe, hacer INSERT
-      console.log('[PIN API] PIN does not exist, creating new...')
-      result = await supabase
-        .from('security_pins')
-        .insert({
+      .upsert(
+        {
           user_id: userId,
           pin_hash,
           is_active: true,
-        })
-        .select()
-    }
-
-    const { data, error } = result
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id', returning: 'representation' }
+      )
+      .select()
 
     if (error) {
       console.error('[PIN API] Supabase operation error:', {

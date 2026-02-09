@@ -74,6 +74,14 @@ export default function OnboardingPage() {
 
   // Maneja la selección de ubicación desde el GeoLocationPicker
   const handleLocationSelect = (location: LocationData) => {
+    console.log('[handleLocationSelect] Ubicación seleccionada:', {
+      lat: location.latitude,
+      lng: location.longitude,
+      address: location.address,
+      city: location.city,
+      province: location.province,
+    });
+    
     setFormData((prev) => ({
       ...prev,
       latitude: location.latitude,
@@ -84,55 +92,53 @@ export default function OnboardingPage() {
       postal_code: location.postal_code,
       location_url: location.location_url,
     }));
-    // Limpiar error de ubicación si existía
-    if (fieldErrors.location) {
-      setFieldErrors((prev) => ({ ...prev, location: '' }));
+    
+    // Limpiar error de ubicación siempre (hay un marcador en el mapa)
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.location;
+      console.log('[handleLocationSelect] Deletando location error. fieldErrors ahora:', next);
+      return next;
+    });
+    
+    // Si con esta ubicación el perfil queda completo, limpiar error global
+    const missingNow = getMissingProfileFields({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      address: location.address,
+      city: location.city,
+      province: location.province,
+    })
+    console.log('[handleLocationSelect] Campos faltantes después de ubicación:', missingNow);
+    if (missingNow.length === 0) {
+      console.log('[handleLocationSelect] ✓ Perfil completo! Limpiando error global');
+      setError(null);
+    } else {
+      console.log('[handleLocationSelect] ✗ Aún faltan campos:', missingNow);
     }
   };
 
   // Guardar datos personales y avanzar al siguiente paso
   const savePersonalData = async () => {
     setError(null);
+    console.log('[savePersonalData] Intentando guardar datos personales');
     
-    // Verificar si el perfil ya está completo en la BD
-    const profileComplete = profile && 
-      profile.full_name?.trim() &&
-      profile.dni?.trim() &&
-      profile.phone?.trim() &&
-      profile.date_of_birth?.trim() &&
-      profile.address?.trim() &&
-      profile.city?.trim() &&
-      profile.province?.trim() &&
-      profile.latitude &&
-      profile.longitude;
-
-    // Si el perfil está completo y no hay cambios, no es necesario re-validar
-    if (profileComplete) {
-      setCurrentStep(1);
+    // Verificar completitud del perfil usando la función que valida TODO
+    const missing = getMissingProfileFields();
+    
+    if (missing.length > 0) {
+      console.log('[savePersonalData] ❌ Campos incompletos:', missing);
+      const errs = mapMissingToFieldErrors(missing);
+      setFieldErrors(errs);
+      setError(`Por favor completa los campos obligatorios: ${missing.join(', ')}`);
       return;
     }
 
-    // Validaciones solo para campos que falten
-    const errors: FieldErrors = {};
-    if (!formData.full_name.trim()) errors.full_name = 'El nombre es obligatorio';
-    if (!formData.email.trim()) errors.email = 'El correo es obligatorio';
-    if (!formData.dni.trim()) errors.dni = 'El DNI es obligatorio';
-    if (!formData.phone.trim()) errors.phone = 'El teléfono es obligatorio';
-    if (!formData.date_of_birth.trim()) errors.date_of_birth = 'La fecha de nacimiento es obligatoria';
-    if (!formData.address.trim()) errors.address = 'La dirección es obligatoria';
-    if (!formData.city.trim()) errors.city = 'La ciudad es obligatoria';
-    if (!formData.province.trim()) errors.province = 'La provincia es obligatoria';
-    if (!formData.latitude || !formData.longitude) errors.location = 'La ubicación es obligatoria';
-    
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      setError('Por favor completa todos los campos obligatorios.');
-      return;
-    }
+    console.log('[savePersonalData] ✓ Todos los campos validados correctamente');
     
     setLoading(true);
     try {
-      // Guardar datos en el backend (solo si hay cambios)
+      // Guardar datos en el backend
       const dataToUpdate = {
         full_name: formData.full_name,
         phone: formData.phone,
@@ -141,9 +147,11 @@ export default function OnboardingPage() {
       };
       
       await updateProfileData(supabase, user.id, dataToUpdate);
+      console.log('[savePersonalData] ✓ Datos guardados. Avanzando al step 1');
       setCurrentStep(1);
     } catch (err: any) {
-      setError('Error al guardar los datos personales.');
+      console.error('[savePersonalData] Error:', err);
+      setError('Error al guardar los datos personales. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -255,8 +263,8 @@ export default function OnboardingPage() {
         const { data: questionsData, error: questionsError } = await supabase
           .from('security_questions')
           .select('*')
-          .eq('is_active', true)
-          .limit(5);
+          .eq('is_active', true);
+          
 
         if (questionsData && !questionsError) {
           setSecurityQuestions(questionsData);
@@ -310,6 +318,69 @@ export default function OnboardingPage() {
 
   // Paso actual del formulario
   const [currentStep, setCurrentStep] = useState(0);
+  // Helper: validar localmente si el perfil está completo (combina `profile` y `formData`)
+  const getMissingProfileFields = (effectiveOverride?: any) => {
+    const effective = { ...(profile || {}), ...(formData || {}), ...(effectiveOverride || {}) } as any
+    const missing: string[] = []
+    
+    // Debug log
+    if (!effectiveOverride) {
+      console.log('[getMissingProfileFields] Estados actuales:', {
+        full_name: effective.full_name,
+        dni: effective.dni,
+        phone: effective.phone,
+        date_of_birth: effective.date_of_birth,
+        address: effective.address,
+        city: effective.city,
+        province: effective.province,
+        latitude: effective.latitude,
+        longitude: effective.longitude
+      });
+    }
+    
+    if (!effective.full_name || !effective.full_name.trim()) missing.push('Nombre completo')
+    const rawDni = effective.dni ? String(effective.dni).replace(/\D/g, '') : ''
+    if (!rawDni) {
+      missing.push('Cédula de Identidad')
+    } else {
+      const dv = validateEcuadorianDNI(rawDni)
+      if (!dv.valid) missing.push('Cédula (formato inválido)')
+      else if (dniValidation?.isDuplicate) missing.push('Cédula duplicada')
+    }
+    if (!effective.phone || !effective.phone.trim()) missing.push('Teléfono')
+    if (!effective.date_of_birth || !effective.date_of_birth.trim()) missing.push('Fecha de nacimiento')
+    if (!effective.address || !effective.address.trim()) missing.push('Dirección')
+    if (!effective.city || !effective.city.trim()) missing.push('Ciudad')
+    if (!effective.province || !effective.province.trim()) missing.push('Provincia')
+    if (!effective.latitude || !effective.longitude) {
+      console.log('[getMissingProfileFields] ❌ Ubicación faltante:', { lat: effective.latitude, lng: effective.longitude });
+      missing.push('Ubicación GPS')
+    } else {
+      console.log('[getMissingProfileFields] ✓ Ubicación OK:', { lat: effective.latitude, lng: effective.longitude });
+    }
+    
+    if (!effectiveOverride) {
+      console.log('[getMissingProfileFields] Campos faltantes:', missing);
+    }
+    return missing
+  }
+  const isProfileCompleteLocal = () => getMissingProfileFields().length === 0
+
+  // Map missing field labels to form field keys for UI highlighting
+  const mapMissingToFieldErrors = (missing: string[]) => {
+    const errs: Record<string, string> = {}
+    missing.forEach((m) => {
+      if (m.includes('Nombre')) errs['full_name'] = 'Campo requerido'
+      else if (m.includes('Cédula')) errs['dni'] = m === 'Cédula duplicada' ? 'Cédula ya registrada' : (m.includes('inválido') ? 'Formato de cédula inválido' : 'Campo requerido')
+      else if (m.includes('Teléfono')) errs['phone'] = 'Campo requerido'
+      else if (m.includes('Fecha')) errs['date_of_birth'] = 'Campo requerido'
+      else if (m.includes('Dirección')) errs['address'] = 'Campo requerido'
+      else if (m.includes('Ciudad')) errs['city'] = 'Campo requerido'
+      else if (m.includes('Provincia')) errs['province'] = 'Campo requerido'
+      else if (m.includes('Ubicación')) errs['location'] = 'Selecciona tu ubicación'
+    })
+    return errs
+  }
   // Datos del formulario principal
   const [formData, setFormData] = useState<FormData>({
     full_name: '',
@@ -374,8 +445,16 @@ export default function OnboardingPage() {
       return
     }
 
-    // Si no hay preguntas cargadas, permite avanzar
+    // Si no hay preguntas cargadas, verificar localmente que el perfil esté completo antes de avanzar
     if (securityQuestions.length === 0) {
+      const missing = getMissingProfileFields()
+      if (missing.length > 0) {
+        const errs = mapMissingToFieldErrors(missing)
+        setFieldErrors((prev) => ({ ...prev, ...errs }))
+        setError('Por favor corrige los campos obligatorios marcados en el formulario.')
+        setCurrentStep(0)
+        return
+      }
       setCurrentStep(2)
       return
     }
@@ -383,6 +462,19 @@ export default function OnboardingPage() {
     try {
       setLoading(true)
       setError(null)
+
+      // Antes de guardar las respuestas, asegurar que el perfil esté completo localmente.
+      const missing = getMissingProfileFields()
+      if (missing.length > 0) {
+        setLoading(false)
+        // Marcar errores por campo para que el usuario vea dónde corregir
+        const errs = mapMissingToFieldErrors(missing)
+        setFieldErrors((prev) => ({ ...prev, ...errs }))
+        setError('Por favor corrige los campos obligatorios marcados en el formulario.')
+        // Llevar al usuario al paso 1 para corregir los campos
+        setCurrentStep(0)
+        return
+      }
 
       // Convertir answersData de Record a Array, filtrando respuestas válidas
       // Quitar el prefijo [ANTERIOR]: si lo tiene
@@ -404,24 +496,63 @@ export default function OnboardingPage() {
       setLoading(false)
     } catch (err: any) {
       console.error('Error saving security questions:', err)
-      setError(err.message || 'Error al guardar preguntas de seguridad')
+      setError('Ocurrió un problema al guardar las respuestas. Intenta de nuevo.')
       setLoading(false)
     }
   }
 
   const saveSecurityPin = async () => {
+    // Si ya existe un PIN registrado y el usuario no ingresa uno nuevo, no forzar creación.
+    if (hasExistingPin) {
+      const noNewPin = !securityData.pin.trim() && !securityData.pin_confirm.trim()
+      console.log('[saveSecurityPin] hasExistingPin:', hasExistingPin, 'noNewPin:', noNewPin);
+      if (noNewPin) {
+        // Solo verificar completitud del perfil y continuar sin llamar al backend
+                  console.log('[saveSecurityPin] Verificando completitud del perfil (sin guardar PIN)...');
+        try {
+          setLoading(true)
+          setError(null)
+          const completion = await checkProfileCompletion(supabase, user.id)
+                    console.log('[saveSecurityPin] Resultado:', completion);
+                      console.log('[saveSecurityPin] ✓ Perfil completo! Redirigiendo');
+          if (completion.isComplete) {
+            router.push('/dashboard')
+                      console.log('[saveSecurityPin] ✗ Incompleto:', completion.missingFields);
+          } else {
+            // Mostrar errores por campo si el servidor encuentra faltantes
+            const errs = mapMissingToFieldErrors(completion.missingFields || [])
+            setFieldErrors((prev) => ({ ...prev, ...errs }))
+            setError('Perfil incompleto. Por favor completa los campos marcados.')
+          }
+        } catch (err: any) {
+          console.error('[saveSecurityPin] Error:', err)
+          setError('Ocurrió un problema al verificar el estado del perfil. Intenta de nuevo.')
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
+      // Si el usuario ingresó un nuevo PIN para reemplazar, validar como en el flujo normal
+    }
+
+    // Validaciones cuando se necesita procesar un PIN (nuevo o reemplazo)
     if (!securityData.pin.trim()) {
+        console.log('[saveSecurityPin] PIN vacío');
       setError('El PIN es requerido')
       return
     }
 
     if (securityData.pin !== securityData.pin_confirm) {
+        console.log('[saveSecurityPin] PINs no coinciden');
       setError('Los PINs no coinciden')
       return
     }
 
     if (!/^\d{4,6}$/.test(securityData.pin)) {
+        console.log('[saveSecurityPin] Formato inválido');
       setError('El PIN debe contener 4-6 dígitos numéricos')
+        console.log('[saveSecurityPin] Verificando completitud antes de guardar...');
+        console.log('[saveSecurityPin] Completitud:', completion);
       return
     }
 
@@ -429,7 +560,18 @@ export default function OnboardingPage() {
       setLoading(true)
       setError(null)
 
-      // Guardar PIN
+      // Antes de crear/actualizar el PIN, verificar que el perfil esté completo.
+      // Si faltan campos, no guardamos el PIN (evita crear PIN antes de arreglar errores en el formulario).
+      const completion = await checkProfileCompletion(supabase, user.id)
+      if (!completion.isComplete) {
+          console.log('[saveSecurityPin] Incompleto. Faltan:', completion.missingFields);
+        setLoading(false)
+        setError(`No se puede guardar el PIN: faltan campos del perfil (${completion.missingFields.join(', ')})`)
+          console.log('[saveSecurityPin] ✓ Guardando PIN...');
+        return
+      }
+
+      // Guardar PIN (idempotente - backend usa upsert)
       const response = await fetch('/api/security/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -441,57 +583,97 @@ export default function OnboardingPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        const errorMessage = errorData.error || `Error del servidor (${response.status})`
-        console.error('API Error:', { status: response.status, errorData })
-        throw new Error(errorMessage)
+        console.error('[saveSecurityPin] API Error:', { status: response.status, errorData })
+        // Do not show raw errorData to user; show friendly message
+        throw new Error('No fue posible guardar el PIN en este momento. Intenta de nuevo.')
       }
 
       const responseData = await response.json()
-      console.log('PIN guardado exitosamente:', responseData)
+      console.log('[saveSecurityPin] ✓ PIN guardado:', responseData)
 
-      // Verificar completitud del perfil
-      const completion = await checkProfileCompletion(supabase, user.id)
+      // Verificar completitud del perfil nuevamente después de guardar el PIN
+      const postCompletion = await checkProfileCompletion(supabase, user.id)
+  console.log('[saveSecurityPin] Verificación final:', postCompletion);
 
-      if (completion.isComplete) {
+      if (postCompletion.isComplete) {
         // Redirigir al dashboard
+        console.log('[saveSecurityPin] ✓ Redirigiendo');
         router.push('/dashboard')
+        console.log('[saveSecurityPin] ✗ Aún incompleto:', postCompletion.missingFields);
       } else {
-        setError(`Perfil incompleto. Campos faltantes: ${completion.missingFields.join(', ')}`)
+        const errs = mapMissingToFieldErrors(postCompletion.missingFields || [])
+        setFieldErrors((prev) => ({ ...prev, ...errs }))
+        setError('Perfil incompleto. Por favor corrige los campos marcados.')
       }
 
       setLoading(false)
     } catch (err: any) {
-      console.error('Error saving PIN:', err)
-      setError(err.message || 'Error al guardar PIN')
+      console.error('[saveSecurityPin] Error:', err)
+      setError('Ocurrió un problema al guardar el PIN. Intenta de nuevo.')
       setLoading(false)
     }
   }
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData({ ...formData, [field]: value })
+    console.log(`[handleInputChange] ${field} = ${value}`);
+    
+    // Actualizar formulario localmente y limpiar error de campo de forma inmediata
+    setFormData((prev) => ({ ...prev, [field]: value }))
     if (fieldErrors[field]) {
-      setFieldErrors({ ...fieldErrors, [field]: '' })
+      setFieldErrors((prev) => {
+        const next = { ...prev }
+        delete next[field]
+        console.log(`[handleInputChange] Deletando error de ${field}. fieldErrors ahora:`, next);
+        return next
+      })
     }
 
     // Validación en tiempo real para DNI
     if (field === 'dni') {
       validateDniRealtime(value)
     }
+
+    // Calcular si quedan campos faltantes usando el valor más reciente (override)
+    try {
+      const missingNow = getMissingProfileFields({ [field]: value })
+      console.log(`[handleInputChange] Después de cambiar ${field}, campos faltantes:`, missingNow);
+      if (missingNow.length === 0) {
+        console.log(`[handleInputChange] ✓ Perfil completado! Limpiando error global`);
+        setError(null)
+        // limpiar error específico si existe
+        setFieldErrors((prev) => {
+          const next = { ...prev }
+          delete next[field]
+          return next
+        })
+      }
+    } catch (e) {
+      console.error('[handleInputChange] Error:', e);
+    }
   }
 
   const validateDniRealtime = async (value: string) => {
     const cleaned = value.replace(/\D/g, '')
+    console.log('[validateDniRealtime] Validando DNI:', cleaned);
     
     // Si está vacío, limpiar validación
     if (!cleaned) {
+      console.log('[validateDniRealtime] DNI vacío');
       setDniValidation({ valid: false, message: '', isDuplicate: false })
+      setFieldErrors((prev) => ({ ...prev, dni: 'Campo requerido' }))
+      const missingNow = getMissingProfileFields()
+      if (missingNow.length > 0) setError(`Faltan campos: ${missingNow.join(', ')}`)
       return
     }
 
     // Validar formato
     const validation = validateEcuadorianDNI(cleaned)
     if (!validation.valid) {
+      console.log('[validateDniRealtime] DNI inválido:', validation.message);
       setDniValidation({ valid: false, message: validation.message, isDuplicate: false })
+      setFieldErrors((prev) => ({ ...prev, dni: validation.message }))
+      const missingNow = getMissingProfileFields()
+      if (missingNow.length > 0) setError(`Faltan campos: ${missingNow.join(', ')}`)
       return
     }
 
@@ -500,23 +682,44 @@ export default function OnboardingPage() {
       setCheckingDuplicate('dni')
       const response = await fetch(`/api/check-duplicates?dni=${cleaned}&currentUserId=${user?.id || ''}`)
       const result = await response.json()
+      console.log('[validateDniRealtime] Resultado de duplicado:', result);
       
       if (result.exists) {
+        console.log('[validateDniRealtime] DNI duplicado');
         setDniValidation({ valid: false, message: result.message, isDuplicate: true })
+        setFieldErrors((prev) => ({ ...prev, dni: result.message }))
+        setError('Por favor corrige los campos marcados.')
       } else {
+        console.log('[validateDniRealtime] ✓ DNI válido y disponible');
         setDniValidation({ valid: true, message: '✓ DNI válido y disponible', isDuplicate: false })
+        setFieldErrors((prev) => {
+          const next = { ...prev }
+          delete next.dni
+          console.log('[validateDniRealtime] Deletando dni error. fieldErrors ahora:', next);
+          return next
+        })
       }
     } catch (error) {
       console.error('Error checking DNI duplicate:', error)
       setDniValidation({ valid: true, message: '✓ DNI válido', isDuplicate: false })
     } finally {
       setCheckingDuplicate(null)
+      // Después de la verificación de duplicados, si el perfil queda completo localmente, limpiar el error global
+      const missingNow = getMissingProfileFields()
+      console.log('[validateDniRealtime finally] Campos faltantes:', missingNow);
+      if (missingNow.length === 0) {
+        console.log('[validateDniRealtime finally] ✓ Perfil completo! Limpiando error global');
+        setError(null)
+      } else {
+        console.log('[validateDniRealtime finally] ✗ Campos faltantes:', missingNow);
+      }
     }
   }
 
   const validatePhoneRealtime = async (value: string) => {
     if (!value) {
       setPhoneValidation({ valid: false, message: '', isDuplicate: false, formatted: '' })
+      setFieldErrors((prev) => ({ ...prev, phone: 'Campo requerido' }))
       return
     }
 
@@ -539,6 +742,8 @@ export default function OnboardingPage() {
           isDuplicate: true,
           formatted: validation.formatted || ''
         });
+        setFieldErrors((prev) => ({ ...prev, phone: result.message }))
+        setError('Por favor corrige los campos marcados.')
       } else {
         setPhoneValidation({ 
           valid: true, 
@@ -546,6 +751,11 @@ export default function OnboardingPage() {
           isDuplicate: false,
           formatted: validation.formatted || ''
         });
+        setFieldErrors((prev) => {
+          const next = { ...prev }
+          delete next.phone
+          return next
+        })
       }
     } catch (error) {
       console.error('Error checking phone duplicate:', error);
@@ -904,7 +1114,7 @@ export default function OnboardingPage() {
 
                 <Button
                   onClick={savePersonalData}
-                  disabled={loading}
+                  disabled={loading || !isProfileCompleteLocal()}
                   className="w-full gap-2"
                   size="lg"
                 >
@@ -913,24 +1123,15 @@ export default function OnboardingPage() {
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Guardando...
                     </>
-                  ) : profile && 
-                      profile.full_name?.trim() &&
-                      profile.dni?.trim() &&
-                      profile.phone?.trim() &&
-                      profile.date_of_birth?.trim() &&
-                      profile.address?.trim() &&
-                      profile.city?.trim() &&
-                      profile.province?.trim() &&
-                      profile.latitude &&
-                      profile.longitude ? (
+                  ) : isProfileCompleteLocal() ? (
                     <>
                       <CheckCircle className="w-4 h-4" />
                       Datos Completos - Continuar →
                     </>
                   ) : (
                     <>
-                      <CheckCircle className="w-4 h-4" />
-                      Continuar a Preguntas de Seguridad
+                      <AlertCircle className="w-4 h-4" />
+                      Completa todos los campos para continuar
                     </>
                   )}
                 </Button>
@@ -1114,9 +1315,9 @@ export default function OnboardingPage() {
                     )}
 
                     {/* Resumen de respuestas */}
-                    <div className="bg-muted p-3 rounded-lg">
+                    <div className="bg-muted p-3 rounded-lg max-h-56 overflow-y-auto">
                       <p className="text-xs font-medium text-muted-foreground mb-2">Resumen:</p>
-                      <ul className="text-xs space-y-1">
+                      <ul className="text-xs space-y-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {securityQuestions.map((q, idx) => {
                           const answerValue = answersData[q.id] || '';
                           const isAnterior = answerValue.startsWith('[ANTERIOR]:');
@@ -1166,7 +1367,7 @@ export default function OnboardingPage() {
                         Object.values(answersData).filter(a => 
                           a && a.trim()
                         ).length < 3
-                      )
+                      ) || !isProfileCompleteLocal()
                     }
                     className="flex-1 gap-2"
                   >
@@ -1203,50 +1404,57 @@ export default function OnboardingPage() {
                   </Alert>
                 )}
 
-                {/* PIN avanzado: casillas separadas */}
-                <div className="space-y-2">
-                  <Label htmlFor="pin" className="font-semibold text-lg">
-                    PIN de Seguridad (4-6 dígitos) *
-                  </Label>
-                  <PinInput
-                    length={6}
-                    value={securityData.pin}
-                    onChange={(val: string) => setSecurityData({ ...securityData, pin: val.replace(/\D/g, '') })}
-                    isPassword={!showPin}
-                  />
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowPin(!showPin)}
-                      className="text-muted-foreground hover:text-foreground text-xs"
-                    >
-                      {showPin ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
-                    </button>
-                    <span className="text-xs text-muted-foreground">Solo dígitos numéricos</span>
-                  </div>
-                </div>
+                {/* PIN inputs: solo mostrar si no existe un PIN ya registrado */}
+                {!hasExistingPin ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="pin" className="font-semibold text-lg">
+                        PIN de Seguridad (4-6 dígitos) *
+                      </Label>
+                      <PinInput
+                        length={6}
+                        value={securityData.pin}
+                        onChange={(val: string) => setSecurityData({ ...securityData, pin: val.replace(/\D/g, '') })}
+                        isPassword={!showPin}
+                      />
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowPin(!showPin)}
+                          className="text-muted-foreground hover:text-foreground text-xs"
+                        >
+                          {showPin ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                        </button>
+                        <span className="text-xs text-muted-foreground">Solo dígitos numéricos</span>
+                      </div>
+                    </div>
 
-                {/* Confirmar PIN avanzado */}
-                <div className="space-y-2">
-                  <Label htmlFor="pin_confirm" className="font-semibold text-lg">
-                    Confirmar PIN *
-                  </Label>
-                  <PinInput
-                    length={6}
-                    value={securityData.pin_confirm}
-                    onChange={(val: string) => setSecurityData({ ...securityData, pin_confirm: val.replace(/\D/g, '') })}
-                    isPassword={!showPinConfirm}
-                  />
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowPinConfirm(!showPinConfirm)}
-                      className="text-muted-foreground hover:text-foreground text-xs"
-                    >
-                      {showPinConfirm ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPinConfirm ? 'Ocultar PIN' : 'Mostrar PIN'}
-                    </button>
+                    <div className="space-y-2">
+                      <Label htmlFor="pin_confirm" className="font-semibold text-lg">
+                        Confirmar PIN *
+                      </Label>
+                      <PinInput
+                        length={6}
+                        value={securityData.pin_confirm}
+                        onChange={(val: string) => setSecurityData({ ...securityData, pin_confirm: val.replace(/\D/g, '') })}
+                        isPassword={!showPinConfirm}
+                      />
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowPinConfirm(!showPinConfirm)}
+                          className="text-muted-foreground hover:text-foreground text-xs"
+                        >
+                          {showPinConfirm ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPinConfirm ? 'Ocultar PIN' : 'Mostrar PIN'}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Ya existe un PIN registrado para tu cuenta. El PIN sólo se solicita durante el primer registro. Si deseas cambiarlo más adelante, ve al panel de usuario (Dashboard) → Seguridad.
                   </div>
-                </div>
+                )}
 
                 {/* Feedback visual de coincidencia */}
                 <div className="flex items-center gap-2">
@@ -1270,7 +1478,13 @@ export default function OnboardingPage() {
                   </Button>
                   <Button
                     onClick={saveSecurityPin}
-                    disabled={loading}
+                    disabled={loading || (
+                      !hasExistingPin && (
+                        !securityData.pin.trim() ||
+                        securityData.pin !== securityData.pin_confirm ||
+                        !/^\d{4,6}$/.test(securityData.pin)
+                      )
+                    )}
                     className="flex-1 gap-2"
                   >
                     {loading ? (

@@ -45,65 +45,51 @@ export const useSecurityPin = () => {
       setError(null);
 
       try {
-        const pinHash = await hashPin(pin);
-
-        const { data, error: fetchError } = await supabase
-          .from("security_pins")
-          .select("pin_hash, is_active")
-          .eq("user_id", userId)
-          .single();
-
-        if (fetchError) throw new Error("PIN no configurado");
-
-        if (!data.is_active) {
-          throw new Error("PIN desactivado");
+        // ✅ PASO 1: Obtener token de sesión del cliente Supabase
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !data?.session) {
+          console.error('[PIN Verify] No session found:', sessionError);
+          setError('Sesión expirada. Por favor inicia sesión nuevamente');
+          return { success: false, error: 'No session' };
         }
 
-        const isValid = data.pin_hash === pinHash;
+        const accessToken = data.session.access_token;
+        console.log('[PIN Verify] Session token obtained:', accessToken.substring(0, 20) + '...');
 
-        if (isValid) {
-          // Log del intento exitoso
-          await supabase.from("pin_attempt_logs").insert({
-            user_id: userId,
-            success: true,
-            ip_address: await getClientIp(),
-            user_agent: navigator.userAgent,
-          });
-        } else {
-          // Log del intento fallido
-          await supabase.from("pin_attempt_logs").insert({
-            user_id: userId,
-            success: false,
-            ip_address: await getClientIp(),
-            user_agent: navigator.userAgent,
-          });
+        // ✅ PASO 2: Enviar PIN + TOKEN al servidor
+        const response = await fetch('/api/security/pin/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`, // ← CRÍTICO: Token en header
+          },
+          body: JSON.stringify({ pin, userId }),
+        });
 
-          // Verificar si hay demasiados intentos fallidos
-          const { data: attempts } = await supabase
-            .from("pin_attempt_logs")
-            .select("id")
-            .eq("user_id", userId)
-            .eq("success", false)
-            .gte(
-              "attempt_time",
-              new Date(Date.now() - 15 * 60 * 1000).toISOString()
-            );
+        const responseData = await response.json();
 
-          if (attempts && attempts.length >= 5) {
-            throw new Error("Demasiados intentos fallidos. Intenta más tarde.");
-          }
+        if (!response.ok) {
+          // Error o PIN incorrecto
+          const message = responseData.error || 'PIN incorrecto';
+          console.error('[PIN Verify] Error:', { status: response.status, error: message });
+          setError(message);
+          return { success: false, error: message };
         }
 
-        return { success: isValid };
+        console.log('[PIN Verify] PIN validated successfully');
+        // ✅ PIN VALIDADO: Se estableció cookie httpOnly automáticamente
+        return { success: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Error al verificar PIN";
+        const message = err instanceof Error ? err.message : 'Error al verificar PIN';
+        console.error('[PIN Verify] Exception:', message);
         setError(message);
         return { success: false, error: message };
       } finally {
         setLoading(false);
       }
     },
-    [supabase]
+    [] // Sin dependencias de supabase
   );
 
   return { createPin, verifyPin, loading, error };
