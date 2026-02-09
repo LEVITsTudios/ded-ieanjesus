@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -93,7 +93,26 @@ export default function OnboardingPage() {
   // Guardar datos personales y avanzar al siguiente paso
   const savePersonalData = async () => {
     setError(null);
-    // Validaciones básicas (puedes expandir según tus reglas)
+    
+    // Verificar si el perfil ya está completo en la BD
+    const profileComplete = profile && 
+      profile.full_name?.trim() &&
+      profile.dni?.trim() &&
+      profile.phone?.trim() &&
+      profile.date_of_birth?.trim() &&
+      profile.address?.trim() &&
+      profile.city?.trim() &&
+      profile.province?.trim() &&
+      profile.latitude &&
+      profile.longitude;
+
+    // Si el perfil está completo y no hay cambios, no es necesario re-validar
+    if (profileComplete) {
+      setCurrentStep(1);
+      return;
+    }
+
+    // Validaciones solo para campos que falten
     const errors: FieldErrors = {};
     if (!formData.full_name.trim()) errors.full_name = 'El nombre es obligatorio';
     if (!formData.email.trim()) errors.email = 'El correo es obligatorio';
@@ -104,14 +123,16 @@ export default function OnboardingPage() {
     if (!formData.city.trim()) errors.city = 'La ciudad es obligatoria';
     if (!formData.province.trim()) errors.province = 'La provincia es obligatoria';
     if (!formData.latitude || !formData.longitude) errors.location = 'La ubicación es obligatoria';
+    
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       setError('Por favor completa todos los campos obligatorios.');
       return;
     }
+    
     setLoading(true);
     try {
-      // Guardar datos en el backend
+      // Guardar datos en el backend (solo si hay cambios)
       const dataToUpdate = {
         full_name: formData.full_name,
         phone: formData.phone,
@@ -130,32 +151,67 @@ export default function OnboardingPage() {
 
   // Hooks y estados principales
   const router = useRouter();
-  const supabase = createClient();
-
+  
   // Estado de usuario autenticado
   const [authChecked, setAuthChecked] = useState(false);
   const [session, setSession] = useState<any>(null);
 
+  // Crear cliente Supabase una única vez de forma segura
+  const supabase = useMemo(() => {
+    // Limpiar tokens inválidos del localStorage antes de crear el cliente
+    // Solo ejecutar en el cliente, no en el servidor
+    if (typeof window !== 'undefined') {
+      try {
+        const auth = localStorage.getItem('sb-liamgsolvdjxjusmtyov-auth-token');
+        if (auth) {
+          const parsed = JSON.parse(auth);
+          // Si no hay refresh token válido, limpiar localStorage
+          if (!parsed.refresh_token) {
+            localStorage.removeItem('sb-liamgsolvdjxjusmtyov-auth-token');
+          }
+        }
+      } catch (e) {
+        // Si hay error parsing, limpiar
+        localStorage.removeItem('sb-liamgsolvdjxjusmtyov-auth-token');
+      }
+    }
+    return createClient();
+  }, []);
+
   // Verificar sesión activa al cargar el componente
   useEffect(() => {
     const checkSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      if (!data?.session) {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!data?.session) {
+          router.replace('/auth/login');
+        } else {
+          setSession(data.session);
+          setUser({ id: data.session.user.id, email: data.session.user.email });
+          
+          // Verificar si el perfil ya está completo
+          const completion = await checkProfileCompletion(supabase, data.session.user.id);
+          if (completion.isComplete) {
+            // Si está completo, redirigir directamente al dashboard
+            console.log('✓ Perfil completo - Redirigiendo al dashboard');
+            router.replace('/dashboard');
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error checking session:', err);
         router.replace('/auth/login');
-      } else {
-        setSession(data.session);
-        setUser({ id: data.session.user.id, email: data.session.user.email });
       }
       setAuthChecked(true);
     };
     checkSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [supabase]);
 
   // Cargar datos del perfil cuando la sesión está lista
   useEffect(() => {
     const loadUserProfile = async () => {
-      if (!session?.user?.id) return;
+      if (!session?.user?.id || !authChecked) return;
 
       try {
         setLoading(true);
@@ -169,7 +225,7 @@ export default function OnboardingPage() {
 
         if (profileData && !profileError) {
           setProfile(profileData);
-          // Pre-llenar el formulario con datos existentes
+          // Pre-llenar el formulario con datos existentes desde la BD
           setFormData((prev) => ({
             ...prev,
             full_name: profileData.full_name || '',
@@ -185,6 +241,14 @@ export default function OnboardingPage() {
             longitude: profileData.longitude || null,
             location_url: profileData.location_url || '',
           }));
+          console.log('✓ Datos del perfil cargados desde Supabase:', {
+            full_name: profileData.full_name,
+            dni: profileData.dni,
+            phone: profileData.phone,
+            address: profileData.address,
+          });
+        } else if (profileError && profileError.code !== 'PGRST116') {
+          console.warn('Error loading profile:', profileError);
         }
 
         // Cargar preguntas de seguridad
@@ -197,23 +261,44 @@ export default function OnboardingPage() {
         if (questionsData && !questionsError) {
           setSecurityQuestions(questionsData);
 
-          // Cargar respuestas existentes desde user_security_answers
+          // Cargar respuestas existentes desde user_security_answers (incluir el valor de la respuesta)
           const { data: answersData, error: answersError } = await supabase
             .from('user_security_answers')
-            .select('question_id')
+            .select('question_id, answer_hash')
             .eq('user_id', session.user.id);
 
           if (answersData && !answersError && answersData.length > 0) {
             const answersMap: Record<string, string> = {};
-            // Marcar que existe una respuesta anterior con un indicador especial
+            // Cargar respuestas anteriores con prefijo especial para identificarlas
             answersData.forEach((ans: any) => {
-              answersMap[ans.question_id] = '[RESPUESTA_EXISTENTE]'; // Marcador interno
+              if (ans.answer_hash) {
+                // Guardar con prefijo [ANTERIOR]: para mantener el valor pero identificar que es cargada
+                answersMap[ans.question_id] = `[ANTERIOR]:${ans.answer_hash}`;
+              }
             });
             setAnswersData(answersMap);
+            console.log('✓ Respuestas de seguridad cargadas:', answersData.length + ' total');
           }
+        }
+
+        // Cargar PIN existente desde security_pins
+        const { data: pinData, error: pinError } = await supabase
+          .from('security_pins')
+          .select('pin_hash, is_active')
+          .eq('user_id', session.user.id)
+          .eq('is_active', true)
+          .single();
+
+        if (pinData && !pinError) {
+          // PIN ya existe
+          console.log('✓ PIN de seguridad encontrado');
+          setHasExistingPin(true);
+        } else if (pinError && pinError.code !== 'PGRST116') {
+          console.warn('Error loading PIN:', pinError);
         }
       } catch (err: any) {
         console.error('Error loading user profile:', err);
+        setError('Error al cargar el perfil. Intenta de nuevo.');
       } finally {
         setLoading(false);
       }
@@ -221,7 +306,7 @@ export default function OnboardingPage() {
 
     loadUserProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id]);
+  }, [session?.user?.id, authChecked]);
 
   // Paso actual del formulario
   const [currentStep, setCurrentStep] = useState(0);
@@ -258,6 +343,7 @@ export default function OnboardingPage() {
   const [answersData, setAnswersData] = useState<Record<string, string>>({});
   // Estado de seguridad (PIN)
   const [securityData, setSecurityData] = useState({ pin: '', pin_confirm: '' });
+  const [hasExistingPin, setHasExistingPin] = useState(false);
   // Estado de perfil simulado (puedes ajustar según tu lógica real)
   const [profile, setProfile] = useState<any>(null);
   // Estado de usuario simulado (puedes ajustar según tu lógica real)
@@ -279,7 +365,7 @@ export default function OnboardingPage() {
   const saveSecurityQuestions = async () => {
     // Validar que haya al menos 3 preguntas respondidas
     const answeredCount = Object.values(answersData).filter(a => 
-      a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+      a && a.trim()
     ).length
 
     // Si hay preguntas, validar que responda al menos 3
@@ -298,12 +384,13 @@ export default function OnboardingPage() {
       setLoading(true)
       setError(null)
 
-      // Convertir answersData de Record a Array, filtrando el marcador de respuestas existentes
+      // Convertir answersData de Record a Array, filtrando respuestas válidas
+      // Quitar el prefijo [ANTERIOR]: si lo tiene
       const answersArray = Object.entries(answersData)
-        .filter(([_, answer]) => answer && answer.trim() && answer !== '[RESPUESTA_EXISTENTE]')
+        .filter(([_, answer]) => answer && answer.trim())
         .map(([question_id, answer]) => ({
           question_id,
-          answer,
+          answer: answer.startsWith('[ANTERIOR]:') ? answer.replace('[ANTERIOR]:', '') : answer,
         }))
 
       if (answersArray.length === 0) {
@@ -532,10 +619,34 @@ export default function OnboardingPage() {
 
                 {/* Resumen de campos completados */}
                 {profile && (
-                  <Alert className="bg-blue-50 border-blue-200">
-                    <AlertCircle className="h-4 w-4 text-blue-600" />
-                    <AlertDescription className="text-blue-800">
-                      <strong>Información encontrada:</strong> Tu perfil ya contiene algunos datos. Puedes completar o actualizar los campos faltantes.
+                  <Alert className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                    ? "bg-green-50 border-green-200" 
+                    : "bg-blue-50 border-blue-200"}>
+                    <AlertCircle className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                      ? "h-4 w-4 text-green-600" 
+                      : "h-4 w-4 text-blue-600"} />
+                    <AlertDescription className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                      ? "text-green-800" 
+                      : "text-blue-800"}>
+                      {profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude ? (
+                        <><strong>✓ Perfil Completo:</strong> Todos tus datos están guardados. Puedes continuar al siguiente paso.</>
+                      ) : (
+                        <>
+                          <strong>ℹ Información guardada en tu perfil:</strong>
+                          <div className="mt-1 text-xs space-y-1">
+                            <div className="flex flex-wrap gap-2">
+                              {profile.full_name && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Nombre</span>}
+                              {profile.dni && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ DNI</span>}
+                              {profile.phone && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Teléfono</span>}
+                              {profile.date_of_birth && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Fecha de Nac.</span>}
+                              {profile.address && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Dirección</span>}
+                              {profile.city && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Ciudad</span>}
+                              {profile.province && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ Provincia</span>}
+                              {profile.latitude && profile.longitude && <span className="bg-green-100 text-green-700 px-2 py-1 rounded">✓ GPS</span>}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -802,6 +913,20 @@ export default function OnboardingPage() {
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Guardando...
                     </>
+                  ) : profile && 
+                      profile.full_name?.trim() &&
+                      profile.dni?.trim() &&
+                      profile.phone?.trim() &&
+                      profile.date_of_birth?.trim() &&
+                      profile.address?.trim() &&
+                      profile.city?.trim() &&
+                      profile.province?.trim() &&
+                      profile.latitude &&
+                      profile.longitude ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Datos Completos - Continuar →
+                    </>
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4" />
@@ -825,11 +950,11 @@ export default function OnboardingPage() {
                   // Si hay preguntas, mostrar una a la vez
                   <>
                     {/* Alertas informativas */}
-                {profile && Object.values(answersData).filter(a => a && a.trim() && a !== '[RESPUESTA_EXISTENTE]').length >= 3 && (
+                {profile && Object.values(answersData).filter(a => a && a.trim()).length >= 3 && (
                   <Alert className="bg-green-50 border-green-200 mb-4">
                     <CheckCircle className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-green-800">
-                      <strong>✓ Completado:</strong> Ya tienes {Object.values(answersData).filter(a => a && a.trim() && a !== '[RESPUESTA_EXISTENTE]').length} respuestas nuevas guardadas. Puedes continuar cuando estés listo.
+                      <strong>✓ Completado:</strong> Ya tienes {Object.values(answersData).filter(a => a && a.trim()).length} respuestas guardadas. Puedes continuar cuando estés listo.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -843,7 +968,7 @@ export default function OnboardingPage() {
                         <p className="text-sm font-bold text-primary">
                           Respondidas: {
                             Object.values(answersData).filter(a => 
-                              a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+                              a && a.trim()
                             ).length
                           }/{Math.min(securityQuestions.length, 3)}
                         </p>
@@ -866,17 +991,26 @@ export default function OnboardingPage() {
                         <p className="text-lg font-semibold text-foreground flex-1">
                           {securityQuestions[currentQuestionIndex].question_text}
                         </p>
-                        {(answersData[securityQuestions[currentQuestionIndex].id]?.trim() && 
-                          answersData[securityQuestions[currentQuestionIndex].id] !== '[RESPUESTA_EXISTENTE]') && (
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
-                            ✓ Respondida (nuevo)
-                          </span>
-                        )}
-                        {answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]' && (
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">
-                            ✓ Respondida (anterior)
-                          </span>
-                        )}
+                        {(() => {
+                          const ansValue = answersData[securityQuestions[currentQuestionIndex].id] || '';
+                          const isAnterior = ansValue.startsWith('[ANTERIOR]:');
+                          const hasNewResponse = ansValue && !isAnterior;
+                          
+                          return (
+                            <>
+                              {hasNewResponse && (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
+                                  ✓ Respondida (nuevo)
+                                </span>
+                              )}
+                              {isAnterior && (
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded whitespace-nowrap">
+                                  ✓ Respondida (anterior)
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -885,34 +1019,37 @@ export default function OnboardingPage() {
                       <Label htmlFor="current_answer">
                         Tu respuesta *
                       </Label>
-                      <Input
-                        id="current_answer"
-                        placeholder={
-                          answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
-                            ? 'Ya respondiste esta pregunta. Escribe una nueva respuesta para cambiarla...'
-                            : 'Escribe tu respuesta...'
-                        }
-                        value={
-                          answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
-                            ? ''
-                            : (answersData[securityQuestions[currentQuestionIndex].id] || '')
-                        }
-                        onChange={(e) =>
-                          setAnswersData({
-                            ...answersData,
-                            [securityQuestions[currentQuestionIndex].id]: e.target.value,
-                          })
-                        }
-                        className="text-base"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {(answersData[securityQuestions[currentQuestionIndex].id]?.trim() && 
-                          answersData[securityQuestions[currentQuestionIndex].id] !== '[RESPUESTA_EXISTENTE]')
-                          ? `✓ Nueva respuesta (${answersData[securityQuestions[currentQuestionIndex].id].length} caracteres)` 
-                          : answersData[securityQuestions[currentQuestionIndex].id] === '[RESPUESTA_EXISTENTE]'
-                            ? 'Tienes una respuesta anterior. Escribe una nueva si deseas cambiarla.'
-                            : 'Sin respuesta nueva aún'}
-                      </p>
+                      {(() => {
+                        const ansValue = answersData[securityQuestions[currentQuestionIndex].id] || '';
+                        const isAnterior = ansValue.startsWith('[ANTERIOR]:');
+                        const displayValue = isAnterior ? ansValue.replace('[ANTERIOR]:', '') : ansValue;
+                        
+                        return (
+                          <>
+                            <Input
+                              id="current_answer"
+                              placeholder={
+                                isAnterior
+                                  ? 'Edita tu respuesta anterior o escribe una nueva...'
+                                  : 'Escribe tu respuesta...'
+                              }
+                              value={displayValue}
+                              onChange={(e) =>
+                                setAnswersData({
+                                  ...answersData,
+                                  [securityQuestions[currentQuestionIndex].id]: e.target.value,
+                                })
+                              }
+                              className="text-base"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {displayValue?.trim()
+                                ? `✓ ${displayValue.length} caracteres ${isAnterior ? '(anterior cargado)' : '(nuevo)'}` 
+                                : 'Sin respuesta'}
+                            </p>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* Navegación entre preguntas */}
@@ -941,9 +1078,10 @@ export default function OnboardingPage() {
                         <p className="text-xs font-medium text-muted-foreground">Navegar rápido:</p>
                         <div className="flex flex-wrap gap-2">
                           {securityQuestions.map((q, idx) => {
-                            const answerValue = answersData[q.id];
-                            const hasNewAnswer = answerValue && answerValue.trim() && answerValue !== '[RESPUESTA_EXISTENTE]';
-                            const hasOldAnswer = answerValue === '[RESPUESTA_EXISTENTE]';
+                            const answerValue = answersData[q.id] || '';
+                            const isAnterior = answerValue.startsWith('[ANTERIOR]:');
+                            const hasNewAnswer = answerValue && answerValue.trim() && !isAnterior;
+                            const hasOldAnswer = isAnterior;
                             return (
                               <Button
                                 key={q.id}
@@ -980,9 +1118,10 @@ export default function OnboardingPage() {
                       <p className="text-xs font-medium text-muted-foreground mb-2">Resumen:</p>
                       <ul className="text-xs space-y-1">
                         {securityQuestions.map((q, idx) => {
-                          const answerValue = answersData[q.id];
-                          const hasNewAnswer = answerValue && answerValue.trim() && answerValue !== '[RESPUESTA_EXISTENTE]';
-                          const hasOldAnswer = answerValue === '[RESPUESTA_EXISTENTE]';
+                          const answerValue = answersData[q.id] || '';
+                          const isAnterior = answerValue.startsWith('[ANTERIOR]:');
+                          const hasNewAnswer = answerValue && answerValue.trim() && !isAnterior;
+                          const hasOldAnswer = isAnterior;
                           return (
                             <li key={q.id} className="flex items-center gap-2">
                               {hasNewAnswer ? (
@@ -1025,7 +1164,7 @@ export default function OnboardingPage() {
                       loading || (
                         securityQuestions.length > 0 && 
                         Object.values(answersData).filter(a => 
-                          a && a.trim() && a !== '[RESPUESTA_EXISTENTE]'
+                          a && a.trim()
                         ).length < 3
                       )
                     }
@@ -1053,6 +1192,16 @@ export default function OnboardingPage() {
                 <p className="text-base text-muted-foreground font-medium">
                   {steps[2].description}
                 </p>
+
+                {/* Alerta si PIN ya existe */}
+                {hasExistingPin && (
+                  <Alert className="bg-blue-50 border-blue-200">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      <strong>ℹ PIN existente:</strong> Ya tienes un PIN de seguridad registrado. Puedes establecer uno nuevo para reemplazarlo.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* PIN avanzado: casillas separadas */}
                 <div className="space-y-2">
