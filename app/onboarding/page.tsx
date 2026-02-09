@@ -377,7 +377,7 @@ export default function OnboardingPage() {
       else if (m.includes('Dirección')) errs['address'] = 'Campo requerido'
       else if (m.includes('Ciudad')) errs['city'] = 'Campo requerido'
       else if (m.includes('Provincia')) errs['province'] = 'Campo requerido'
-      else if (m.includes('Ubicación')) errs['location'] = 'Selecciona tu ubicación'
+      //else if (m.includes('Ubicación')) errs['location'] = 'Selecciona tu ubicación'
     })
     return errs
   }
@@ -517,12 +517,18 @@ export default function OnboardingPage() {
                       console.log('[saveSecurityPin] ✓ Perfil completo! Redirigiendo');
           if (completion.isComplete) {
             router.push('/dashboard')
-                      console.log('[saveSecurityPin] ✗ Incompleto:', completion.missingFields);
+            console.log('[saveSecurityPin] ✗ Incompleto:', completion.missingFields);
           } else {
             // Mostrar errores por campo si el servidor encuentra faltantes
             const errs = mapMissingToFieldErrors(completion.missingFields || [])
             setFieldErrors((prev) => ({ ...prev, ...errs }))
-            setError('Perfil incompleto. Por favor completa los campos marcados.')
+            // Mensaje detallado: mostrar cada campo faltante y su razón
+            const detalles = (completion.missingFields || []).map((campo) => {
+              // Buscar la razón en errs
+              const razon = Object.entries(errs).find(([key, val]) => val && campo.toLowerCase().includes(key.replace('_', '').toLowerCase()))
+              return `- ${campo}${razon ? ': ' + razon[1] : ''}`;
+            }).join('\n');
+            setError(`Perfil incompleto.\nCampos faltantes:\n${detalles || 'Ninguno detectado.'}`);
           }
         } catch (err: any) {
           console.error('[saveSecurityPin] Error:', err)

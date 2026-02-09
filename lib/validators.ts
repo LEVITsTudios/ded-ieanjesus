@@ -35,13 +35,18 @@ export function validateEcuadorianDNI(dni: string): { valid: boolean; message: s
     return validateCedula(cleaned)
   }
   
-  if (cleaned.length === 13) {
-    const lastThreeDigits = cleaned.slice(-3)
-    if (lastThreeDigits === '001') {
-      return { valid: true, message: 'RUC válido' }
-    }
+if (cleaned.length === 13) {
+  if (!validateCedula(cleaned.substring(0, 10)).valid) {
+    return { valid: false, message: 'RUC inválido (cédula base incorrecta)' }
+  }
+
+  if (cleaned.slice(-3) !== '001') {
     return { valid: false, message: 'RUC debe terminar en 001' }
   }
+
+  return { valid: true, message: 'RUC válido' }
+}
+
   
   return { valid: false, message: 'Cédula debe tener 10 dígitos o RUC 13 dígitos' }
 }
@@ -61,11 +66,34 @@ function validateCedula(cedula: string): { valid: boolean; message: string } {
 
   const provinceCode = parseInt(cedula.substring(0, 2))
   if (provinceCode < 1 || provinceCode > 24) {
-    return { valid: false, message: `Código de provincia inválido: ${provinceCode} (válido: 01-24)` }
+    return { valid: false, message: `Código de provincia inválido (${provinceCode})` }
+  }
+
+  const thirdDigit = parseInt(cedula[2])
+  if (thirdDigit > 5) {
+    return { valid: false, message: 'Tercer dígito inválido para persona natural' }
+  }
+
+  // Validar dígito verificador (módulo 10)
+  const coefficients = [2, 1, 2, 1, 2, 1, 2, 1, 2]
+  let sum = 0
+
+  for (let i = 0; i < 9; i++) {
+    let result = parseInt(cedula[i]) * coefficients[i]
+    if (result >= 10) result -= 9
+    sum += result
+  }
+
+  const verifier = (10 - (sum % 10)) % 10
+  const lastDigit = parseInt(cedula[9])
+
+  if (verifier !== lastDigit) {
+    return { valid: false, message: 'Dígito verificador inválido' }
   }
 
   return { valid: true, message: 'Cédula válida' }
 }
+
 
 /**
  * Validar y formatear teléfono ecuatoriano
