@@ -138,12 +138,20 @@ export default function OnboardingPage() {
     
     setLoading(true);
     try {
-      // Guardar datos en el backend
+      // Guardar datos en el backend (todos los campos del step 1)
       const dataToUpdate = {
         full_name: formData.full_name,
+        email: formData.email,
+        dni: formData.dni,
         phone: formData.phone,
         address: formData.address,
         date_of_birth: formData.date_of_birth,
+        city: formData.city,
+        province: formData.province,
+        postal_code: formData.postal_code,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        location_url: formData.location_url,
       };
       
       await updateProfileData(supabase, user.id, dataToUpdate);
@@ -295,7 +303,7 @@ export default function OnboardingPage() {
           .select('pin_hash, is_active')
           .eq('user_id', session.user.id)
           .eq('is_active', true)
-          .single();
+          .maybeSingle();
 
         if (pinData && !pinError) {
           // PIN ya existe
@@ -304,9 +312,56 @@ export default function OnboardingPage() {
         } else if (pinError && pinError.code !== 'PGRST116') {
           console.warn('Error loading PIN:', pinError);
         }
+
+        // --- Determinar cuál es el primer step incompleto ---
+        console.log('[loadUserProfile] Verificando completitud del onboarding...');
+        
+        // Verificar datos personales
+        const hasPersonalData = profileData?.full_name && profileData?.dni && profileData?.phone && 
+                                profileData?.date_of_birth && profileData?.address && profileData?.city && 
+                                profileData?.province && profileData?.latitude && profileData?.longitude;
+        
+        // Verificar respuestas de seguridad (al menos 3)
+        const answeredCount = (questionsData || []).length > 0 ? 
+          (Object.values(answersData || {}).filter((a: any) => a && a.trim()).length) : 0;
+        const hasSecurityAnswers = (questionsData || []).length === 0 || answeredCount >= 3;
+        
+        // Verificar PIN
+        const hasPin = pinData ? true : false;
+        
+        console.log('[loadUserProfile] Estado de completitud:', {
+          hasPersonalData,
+          hasSecurityAnswers,
+          hasPin,
+          answeredCount,
+          questionsCount: questionsData?.length || 0
+        });
+        
+        // Si todo está completo, redirigir al dashboard
+        if (hasPersonalData && hasSecurityAnswers && hasPin) {
+          console.log('[loadUserProfile] ✓ ¡Onboarding completo! Redirigiendo a /dashboard');
+          router.push('/dashboard');
+          return;
+        }
+        
+        // Si no, determinar cuál es el primer step incompleto
+        if (!hasPersonalData) {
+          console.log('[loadUserProfile] Step 0: Datos personales incompletos');
+          setCurrentStep(0);
+        } else if (!hasSecurityAnswers) {
+          console.log('[loadUserProfile] Step 1: Preguntas de seguridad incompletas');
+          setCurrentStep(1);
+        } else if (!hasPin) {
+          console.log('[loadUserProfile] Step 2: PIN incompleto');
+          setCurrentStep(2);
+        } else {
+          console.log('[loadUserProfile] Todos los pasos completados (fallback)');
+          setCurrentStep(0);
+        }
       } catch (err: any) {
         console.error('Error loading user profile:', err);
         setError('Error al cargar el perfil. Intenta de nuevo.');
+        setCurrentStep(0); // Mostrar step 0 por defecto si hay error
       } finally {
         setLoading(false);
       }
@@ -317,7 +372,7 @@ export default function OnboardingPage() {
   }, [session?.user?.id, authChecked]);
 
   // Paso actual del formulario
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(-1); // -1 significa "determinando"
   // Helper: validar localmente si el perfil está completo (combina `profile` y `formData`)
   const getMissingProfileFields = (effectiveOverride?: any) => {
     const effective = { ...(profile || {}), ...(formData || {}), ...(effectiveOverride || {}) } as any
@@ -501,124 +556,87 @@ export default function OnboardingPage() {
     }
   }
 
-  const saveSecurityPin = async () => {
-    // Si ya existe un PIN registrado y el usuario no ingresa uno nuevo, no forzar creación.
-    if (hasExistingPin) {
-      const noNewPin = !securityData.pin.trim() && !securityData.pin_confirm.trim()
-      console.log('[saveSecurityPin] hasExistingPin:', hasExistingPin, 'noNewPin:', noNewPin);
-      if (noNewPin) {
-        // Solo verificar completitud del perfil y continuar sin llamar al backend
-                  console.log('[saveSecurityPin] Verificando completitud del perfil (sin guardar PIN)...');
-        try {
-          setLoading(true)
-          setError(null)
-          const completion = await checkProfileCompletion(supabase, user.id)
-                    console.log('[saveSecurityPin] Resultado:', completion);
-                      console.log('[saveSecurityPin] ✓ Perfil completo! Redirigiendo');
-          if (completion.isComplete) {
-            router.push('/dashboard')
-            console.log('[saveSecurityPin] ✗ Incompleto:', completion.missingFields);
-          } else {
-            // Mostrar errores por campo si el servidor encuentra faltantes
-            const errs = mapMissingToFieldErrors(completion.missingFields || [])
-            setFieldErrors((prev) => ({ ...prev, ...errs }))
-            // Mensaje detallado: mostrar cada campo faltante y su razón
-            const detalles = (completion.missingFields || []).map((campo) => {
-              // Buscar la razón en errs
-              const razon = Object.entries(errs).find(([key, val]) => val && campo.toLowerCase().includes(key.replace('_', '').toLowerCase()))
-              return `- ${campo}${razon ? ': ' + razon[1] : ''}`;
-            }).join('\n');
-            setError(`Perfil incompleto.\nCampos faltantes:\n${detalles || 'Ninguno detectado.'}`);
-          }
-        } catch (err: any) {
-          console.error('[saveSecurityPin] Error:', err)
-          setError('Ocurrió un problema al verificar el estado del perfil. Intenta de nuevo.')
-        } finally {
-          setLoading(false)
-        }
-        return
-      }
-      // Si el usuario ingresó un nuevo PIN para reemplazar, validar como en el flujo normal
-    }
-
-    // Validaciones cuando se necesita procesar un PIN (nuevo o reemplazo)
+const saveSecurityPin = async () => {
+  setLoading(true)
+  setError(null)
+  try {
+    // --- Validar que se haya ingresado un PIN ---
     if (!securityData.pin.trim()) {
-        console.log('[saveSecurityPin] PIN vacío');
-      setError('El PIN es requerido')
-      return
+      setError('Debes ingresar un PIN.');
+      setLoading(false);
+      return;
     }
 
-    if (securityData.pin !== securityData.pin_confirm) {
-        console.log('[saveSecurityPin] PINs no coinciden');
-      setError('Los PINs no coinciden')
-      return
-    }
-
-    if (!/^\d{4,6}$/.test(securityData.pin)) {
-        console.log('[saveSecurityPin] Formato inválido');
-      setError('El PIN debe contener 4-6 dígitos numéricos')
-        console.log('[saveSecurityPin] Verificando completitud antes de guardar...');
-        console.log('[saveSecurityPin] Completitud:', completion);
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      // Antes de crear/actualizar el PIN, verificar que el perfil esté completo.
-      // Si faltan campos, no guardamos el PIN (evita crear PIN antes de arreglar errores en el formulario).
-      const completion = await checkProfileCompletion(supabase, user.id)
-      if (!completion.isComplete) {
-          console.log('[saveSecurityPin] Incompleto. Faltan:', completion.missingFields);
-        setLoading(false)
-        setError(`No se puede guardar el PIN: faltan campos del perfil (${completion.missingFields.join(', ')})`)
-          console.log('[saveSecurityPin] ✓ Guardando PIN...');
-        return
+    // --- Si no existe PIN aún, validar coincidencia ---
+    if (!hasExistingPin) {
+      if (securityData.pin !== securityData.pin_confirm) {
+        setError('Los PIN no coinciden.');
+        setLoading(false);
+        return;
+      }
+      if (!/^\d{4,6}$/.test(securityData.pin)) {
+        setError('El PIN debe tener entre 4 y 6 dígitos numéricos.');
+        setLoading(false);
+        return;
       }
 
-      // Guardar PIN (idempotente - backend usa upsert)
-      const response = await fetch('/api/security/pin', {
+      // Guardar PIN nuevo
+      console.log('[saveSecurityPin] Guardando PIN nuevo...');
+      const saveResponse = await fetch('/api/security/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          pin: securityData.pin,
-          userId: user.id, // Enviar el user ID desde el cliente
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('[saveSecurityPin] API Error:', { status: response.status, errorData })
-        // Do not show raw errorData to user; show friendly message
-        throw new Error('No fue posible guardar el PIN en este momento. Intenta de nuevo.')
+        body: JSON.stringify({ pin: securityData.pin, userId: user.id }),
+      });
+      if (!saveResponse.ok) {
+        setError('No se pudo guardar el PIN. Intenta de nuevo.');
+        setLoading(false);
+        return;
       }
-
-      const responseData = await response.json()
-      console.log('[saveSecurityPin] ✓ PIN guardado:', responseData)
-
-      // Verificar completitud del perfil nuevamente después de guardar el PIN
-      const postCompletion = await checkProfileCompletion(supabase, user.id)
-  console.log('[saveSecurityPin] Verificación final:', postCompletion);
-
-      if (postCompletion.isComplete) {
-        // Redirigir al dashboard
-        console.log('[saveSecurityPin] ✓ Redirigiendo');
-        router.push('/dashboard')
-        console.log('[saveSecurityPin] ✗ Aún incompleto:', postCompletion.missingFields);
-      } else {
-        const errs = mapMissingToFieldErrors(postCompletion.missingFields || [])
-        setFieldErrors((prev) => ({ ...prev, ...errs }))
-        setError('Perfil incompleto. Por favor corrige los campos marcados.')
-      }
-
-      setLoading(false)
-    } catch (err: any) {
-      console.error('[saveSecurityPin] Error:', err)
-      setError('Ocurrió un problema al guardar el PIN. Intenta de nuevo.')
-      setLoading(false)
+      console.log('[saveSecurityPin] PIN nuevo guardado exitosamente');
+    } else {
+      // Si existe PIN, solo el PIN principal es obligatorio, confirmar es opcional
+      console.log('[saveSecurityPin] Validando PIN existente...');
     }
+
+    // --- Validar el PIN (nuevo o existente) para establecer cookie ---
+    console.log('[saveSecurityPin] Validando PIN...');
+    const session = await (await import('@/lib/supabase/client')).createClient().auth.getSession();
+    const token = session.data.session?.access_token;
+
+    if (!token) {
+      setError('Sesión expirada. Por favor inicia sesión nuevamente.');
+      setLoading(false);
+      return;
+    }
+
+    const verifyResponse = await fetch('/api/security/pin/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ pin: securityData.pin, userId: user.id }),
+    });
+
+    const verifyData = await verifyResponse.json();
+
+    if (!verifyResponse.ok) {
+      console.error('[saveSecurityPin] Verify error:', verifyData);
+      setError(verifyData.error || 'PIN incorrecto. Intenta de nuevo.');
+      setLoading(false);
+      return;
+    }
+
+    console.log('[saveSecurityPin] PIN validado exitosamente. Redirigiendo al dashboard...');
+    setLoading(false);
+    router.push('/dashboard');
+  } catch (err: any) {
+    console.error('[saveSecurityPin] Error inesperado:', err);
+    setError('Ocurrió un problema. Intenta de nuevo.');
+    setLoading(false);
   }
+}
+
 
   const handleInputChange = (field: string, value: string) => {
     console.log(`[handleInputChange] ${field} = ${value}`);
@@ -792,7 +810,7 @@ export default function OnboardingPage() {
     validatePhoneRealtime(cleaned)
   }
 
-  if (!authChecked || (loading && currentStep === 0)) {
+  if (!authChecked || currentStep === -1) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -921,6 +939,7 @@ export default function OnboardingPage() {
                       id="dni"
                       placeholder="1234567890"
                       maxLength={10}
+                      minLength={10}
                       value={formData.dni}
                       onChange={(e) => handleInputChange('dni', e.target.value.replace(/\D/g, ''))}
                       className={
@@ -1373,7 +1392,7 @@ export default function OnboardingPage() {
                         Object.values(answersData).filter(a => 
                           a && a.trim()
                         ).length < 3
-                      ) || !isProfileCompleteLocal()
+                      )
                     }
                     className="flex-1 gap-2"
                   >
@@ -1410,55 +1429,55 @@ export default function OnboardingPage() {
                   </Alert>
                 )}
 
-                {/* PIN inputs: solo mostrar si no existe un PIN ya registrado */}
-                {!hasExistingPin ? (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="pin" className="font-semibold text-lg">
-                        PIN de Seguridad (4-6 dígitos) *
-                      </Label>
-                      <PinInput
-                        length={6}
-                        value={securityData.pin}
-                        onChange={(val: string) => setSecurityData({ ...securityData, pin: val.replace(/\D/g, '') })}
-                        isPassword={!showPin}
-                      />
-                      <div className="flex items-center gap-2 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowPin(!showPin)}
-                          className="text-muted-foreground hover:text-foreground text-xs"
-                        >
-                          {showPin ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
-                        </button>
-                        <span className="text-xs text-muted-foreground">Solo dígitos numéricos</span>
-                      </div>
-                    </div>
+                {/* PIN inputs */}
+                <div className="space-y-2">
+                  <Label htmlFor="pin" className="font-semibold text-lg">
+                    {hasExistingPin ? 'Validar PIN Existente' : 'PIN de Seguridad (4-6 dígitos)'} *
+                  </Label>
+                  {hasExistingPin && (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Ingresa tu PIN actual para continuar
+                    </p>
+                  )}
+                  <PinInput
+                    length={6}
+                    value={securityData.pin}
+                    onChange={(val: string) => setSecurityData({ ...securityData, pin: val.replace(/\D/g, '') })}
+                    isPassword={!showPin}
+                  />
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      {showPin ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                    </button>
+                    <span className="text-xs text-muted-foreground">Solo dígitos numéricos</span>
+                  </div>
+                </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="pin_confirm" className="font-semibold text-lg">
-                        Confirmar PIN *
-                      </Label>
-                      <PinInput
-                        length={6}
-                        value={securityData.pin_confirm}
-                        onChange={(val: string) => setSecurityData({ ...securityData, pin_confirm: val.replace(/\D/g, '') })}
-                        isPassword={!showPinConfirm}
-                      />
-                      <div className="flex items-center gap-2 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowPinConfirm(!showPinConfirm)}
-                          className="text-muted-foreground hover:text-foreground text-xs"
-                        >
-                          {showPinConfirm ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPinConfirm ? 'Ocultar PIN' : 'Mostrar PIN'}
-                        </button>
-                      </div>
+                {/* Confirmar PIN - solo si es PIN nuevo */}
+                {!hasExistingPin && (
+                  <div className="space-y-2">
+                    <Label htmlFor="pin_confirm" className="font-semibold text-lg">
+                      Confirmar PIN *
+                    </Label>
+                    <PinInput
+                      length={6}
+                      value={securityData.pin_confirm}
+                      onChange={(val: string) => setSecurityData({ ...securityData, pin_confirm: val.replace(/\D/g, '') })}
+                      isPassword={!showPinConfirm}
+                    />
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowPinConfirm(!showPinConfirm)}
+                        className="text-muted-foreground hover:text-foreground text-xs"
+                      >
+                        {showPinConfirm ? <EyeOff className="w-4 h-4 inline" /> : <Eye className="w-4 h-4 inline" />} {showPinConfirm ? 'Ocultar PIN' : 'Mostrar PIN'}
+                      </button>
                     </div>
-                  </>
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    Ya existe un PIN registrado para tu cuenta. El PIN sólo se solicita durante el primer registro. Si deseas cambiarlo más adelante, ve al panel de usuario (Dashboard) → Seguridad.
                   </div>
                 )}
 
@@ -1484,13 +1503,15 @@ export default function OnboardingPage() {
                   </Button>
                   <Button
                     onClick={saveSecurityPin}
-                    disabled={loading || (
-                      !hasExistingPin && (
-                        !securityData.pin.trim() ||
-                        securityData.pin !== securityData.pin_confirm ||
-                        !/^\d{4,6}$/.test(securityData.pin)
+                    disabled={
+                      loading || (
+                        !hasExistingPin && (
+                          !securityData.pin.trim() ||
+                          securityData.pin !== securityData.pin_confirm ||
+                          !/^\d{4,6}$/.test(securityData.pin)
+                        )
                       )
-                    )}
+                    }
                     className="flex-1 gap-2"
                   >
                     {loading ? (
@@ -1508,7 +1529,6 @@ export default function OnboardingPage() {
                 </div>
               </div>
             )}
-
 
             {/* Indicador de Progreso */}
             <div className="mt-8 space-y-2">

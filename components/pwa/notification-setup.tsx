@@ -18,14 +18,14 @@ export function NotificationSetup() {
   if (!showAlert) return null
 
   return (
-    <Alert className="mb-4 border-blue-200 bg-blue-50">
+    <Alert className="mb-4 border-blue-200 dark:text-white">
       <Bell className="w-4 h-4 text-blue-600" />
-      <AlertDescription className="text-blue-900 flex items-center justify-between">
+      <AlertDescription className="flex items-center justify-between">
         <span>Habilita notificaciones para recibir alertas importantes</span>
         <Button
           onClick={requestNotificationPermission}
           size="sm"
-          className="ml-4 bg-blue-600 hover:bg-blue-700"
+          className="ml-4 bg-blue-600 hover:bg-blue-700 shadow-lg shadow-cyan-500/50"
         >
           Habilitar
         </Button>

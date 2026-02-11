@@ -95,7 +95,7 @@ export async function POST(request: Request) {
           is_active: true,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id', returning: 'representation' }
+        { onConflict: 'user_id'}
       )
       .select()
 
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
         message: error.message,
         details: error.details,
         hint: error.hint,
-        status: error.status,
+        //status: error.status,
       })
       return NextResponse.json(
         { error: 'Error al guardar PIN', details: error.message },
@@ -151,7 +151,7 @@ export async function GET(request: Request) {
       .from('security_pins')
       .select('id, is_active, created_at, updated_at')
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
 
     if (error && error.code !== 'PGRST116') {
       console.error('Error fetching PIN status:', error)

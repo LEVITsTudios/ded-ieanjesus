@@ -25,7 +25,7 @@ export function OfflineIndicator() {
 
   if (isOnline) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-green-50 text-green-700 text-xs">
+      <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-green-100/15 text-green-500 text-xs font-bold border border-green-500">
         <Wifi className="w-3 h-3" />
         <span>Online</span>
       </div>

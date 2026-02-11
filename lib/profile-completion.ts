@@ -72,7 +72,7 @@ export async function checkProfileCompletion(
       .from('security_pins')
       .select('id, is_active')
       .eq('user_id', userId)
-      .single()
+      .maybeSingle()
 
     const securityPinComplete = securityPin?.is_active === true
 
