@@ -25,11 +25,13 @@ export async function checkProfileCompletion(
     const missingFields: string[] = []
 
     // 1. Verificar datos personales en profiles
-    const { data: profile, error: profileError } = await supabase
+    const { data: profileArray, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email, phone, address, date_of_birth, dni, latitude, longitude, role')
+      .select('*')
       .eq('id', userId)
-      .single()
+      .limit(1)
+
+    const profile = profileArray?.[0] || null;
 
     if (profileError || !profile) {
       return {
@@ -124,29 +126,123 @@ export async function updateProfileData(
   userId: string,
   data: {
     full_name?: string
+    email?: string
     phone?: string
     address?: string
     date_of_birth?: string
     avatar_url?: string
     grade_level?: string
     department?: string
+    dni?: string
+    city?: string
+    province?: string
+    postal_code?: string
+    latitude?: number | null
+    longitude?: number | null
+    location_url?: string
   }
 ) {
   try {
-    const { error } = await supabase
+    console.log('[updateProfileData] Intentando guardar datos:', data);
+    
+    // PASO 1: Intentar UPDATE
+    const { data: updateResult, error: updateError } = await supabase
       .from('profiles')
       .update({
         ...data,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', userId)
+      .eq('id', userId);
 
-    if (error) throw error
+    if (updateError) {
+      console.error('[updateProfileData] ❌ Error del UPDATE:', {
+        message: updateError.message,
+        code: updateError.code,
+        hint: updateError.hint,
+      });
+      throw updateError;
+    }
 
-    return { success: true, error: null }
+    console.log('[updateProfileData] UPDATE result:', {
+      rowsAffected: updateResult?.length || 0,
+      data: updateResult
+    });
+
+    // Si UPDATE no afectó ninguna fila, significa que el registro no existe
+    // Intentar INSERT en su lugar
+    if (!updateResult || updateResult.length === 0) {
+      console.log('[updateProfileData] ⚠️ UPDATE no afectó filas. Intentando INSERT...');
+      
+      const { data: insertResult, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          ...data,
+          // Valores por defecto para campos NOT NULL si no están en data
+          role: data.role || 'student',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        // Si el error es por constraint violations (ej: phone duplicado)
+        // intentar buscar y actualizar el registro existente
+        if (insertError.code === '23505') {
+          console.log('[updateProfileData] ⚠️ INSERT falló por constraint. Buscando registro por phone/dni...');
+          
+          // Intentar encontrar el perfil por phone o dni (claves únicas)
+          let findQuery = supabase
+            .from('profiles')
+            .select('id')
+            .limit(1);
+          
+          if (data.phone) {
+            findQuery = findQuery.eq('phone', data.phone);
+          } else if (data.dni) {
+            findQuery = findQuery.eq('dni', data.dni);
+          }
+          
+          const { data: existingProfile, error: findError } = await findQuery;
+          
+          if (!findError && existingProfile && existingProfile.length > 0) {
+            const existingId = existingProfile[0].id;
+            console.log('[updateProfileData] ✓ Perfil existente encontrado con ID:', existingId);
+            
+            // Ahora actualizar ese perfil existente
+            const { error: updateExistingError } = await supabase
+              .from('profiles')
+              .update({
+                ...data,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingId);
+            
+            if (updateExistingError) {
+              throw updateExistingError;
+            }
+            
+            console.log('[updateProfileData] ✓ Perfil existente actualizado exitosamente');
+            return { success: true, error: null };
+          }
+        }
+        
+        console.error('[updateProfileData] ❌ Error del INSERT irrecuperable:', {
+          message: insertError.message,
+          code: insertError.code,
+          hint: insertError.hint,
+        });
+        throw insertError;
+      }
+
+      console.log('[updateProfileData] ✓ INSERT exitoso:', insertResult);
+      return { success: true, error: null };
+    }
+
+    console.log('[updateProfileData] ✓ UPDATE exitoso');
+    return { success: true, error: null };
   } catch (err: any) {
-    console.error('Error updating profile data:', err)
-    return { success: false, error: err?.message || 'Error al actualizar perfil' }
+    console.error('[updateProfileData] ❌ Excepción capturada:', err);
+    return { success: false, error: err?.message || 'Error al actualizar perfil' };
   }
 }
 

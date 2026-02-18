@@ -170,8 +170,25 @@ export function validateDateOfBirth(dateStr: string, minAge: number = 5): { vali
     return { valid: false, message: 'La fecha de nacimiento es requerida' }
   }
 
+  // Validar formato YYYY-MM-DD
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+  if (!dateRegex.test(dateStr)) {
+    return { valid: false, message: 'Formato de fecha inválido (debe ser AAAA-MM-DD)' }
+  }
+
   const birthDate = new Date(dateStr)
   const today = new Date()
+
+  // Validar que la fecha sea válida
+  if (isNaN(birthDate.getTime())) {
+    return { valid: false, message: 'La fecha es inválida' }
+  }
+
+  // Validar año (debe estar entre 1900 y el año actual)
+  const year = birthDate.getFullYear()
+  if (year < 1900 || year > today.getFullYear()) {
+    return { valid: false, message: 'El año debe estar entre 1900 y ' + today.getFullYear() }
+  }
 
   if (birthDate > today) {
     return { valid: false, message: 'La fecha no puede ser en el futuro' }

@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import {
   updateProfileData,
   getSecurityQuestions,
@@ -135,13 +136,27 @@ export default function OnboardingPage() {
     }
 
     console.log('[savePersonalData] ✓ Todos los campos validados correctamente');
+    console.log('[savePersonalData] Datos a guardar:', {
+      full_name: formData.full_name,
+      dni: formData.dni,
+      phone: formData.phone,
+      date_of_birth: formData.date_of_birth,
+      address: formData.address,
+      city: formData.city,
+      province: formData.province,
+      latitude: formData.latitude,
+      longitude: formData.longitude
+    });
     
     setLoading(true);
     try {
       // Guardar datos en el backend (todos los campos del step 1)
+      // Si el email está vacío en formData, usar el email de la sesión (ej: Google OAuth)
+      const emailToSave = formData.email && formData.email.trim() ? formData.email : user?.email || '';
+      
       const dataToUpdate = {
         full_name: formData.full_name,
-        email: formData.email,
+        email: emailToSave,
         dni: formData.dni,
         phone: formData.phone,
         address: formData.address,
@@ -149,12 +164,72 @@ export default function OnboardingPage() {
         city: formData.city,
         province: formData.province,
         postal_code: formData.postal_code,
-        latitude: formData.latitude,
-        longitude: formData.longitude,
+        latitude: formData.latitude !== null ? formData.latitude : undefined,
+        longitude: formData.longitude !== null ? formData.longitude : undefined,
         location_url: formData.location_url,
-      };
+      } as any;
       
-      await updateProfileData(supabase, user.id, dataToUpdate);
+      console.log('[savePersonalData] Email a guardar:', emailToSave);
+      
+      const result = await updateProfileData(supabase, user.id, dataToUpdate);
+      console.log('[savePersonalData] ✓ Resultado de guardado:', result);
+      
+      if (!result.success) {
+        console.error('[savePersonalData] ❌ Error al guardar:', result.error);
+        setError(`Error al guardar: ${result.error}`);
+        setLoading(false);
+        return;
+      }
+      
+      // NO confiar en que los datos fueron guardados - recargar inmediatamente para verificar
+      const { data: verifyProfiles, error: verifyError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .limit(1);
+      
+      const verifyProfile = verifyProfiles?.[0] || null;
+      
+      console.log('[savePersonalData] Verificación post-guardado:', {
+        datos: verifyProfile,
+        error: verifyError ? {
+          message: verifyError.message,
+          code: verifyError.code,
+          hint: verifyError.hint
+        } : null
+      });
+      
+      if (verifyError) {
+        console.error('[savePersonalData] ❌ Error al verificar datos guardados:', {
+          message: verifyError.message,
+          code: verifyError.code,
+          details: 'Posible problema RLS de Supabase'
+        });
+        // Si hay error 406, es RLS. Mostrar error claro
+        if (verifyError.code === '406') {
+          setError('Error de acceso a los datos (RLS de Supabase). Por favor contacta al administrador.');
+        }
+      }
+      
+      if (verifyProfile) {
+        console.log('[savePersonalData] ✓ Datos verificados en BD');
+        setProfile(verifyProfile);
+        setFormData((prev) => ({
+          ...prev,
+          full_name: verifyProfile.full_name || '',
+          dni: verifyProfile.dni || '',
+          phone: verifyProfile.phone || '',
+          date_of_birth: verifyProfile.date_of_birth || '',
+          address: verifyProfile.address || '',
+          city: verifyProfile.city || '',
+          province: verifyProfile.province || '',
+          postal_code: verifyProfile.postal_code || '',
+          latitude: verifyProfile.latitude || null,
+          longitude: verifyProfile.longitude || null,
+          location_url: verifyProfile.location_url || '',
+        }));
+      }
+      
       console.log('[savePersonalData] ✓ Datos guardados. Avanzando al step 1');
       setCurrentStep(1);
     } catch (err: any) {
@@ -233,11 +308,13 @@ export default function OnboardingPage() {
         setLoading(true);
 
         // Obtener datos del usuario de la tabla profiles
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileDataArray, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
-          .single();
+          .limit(1);
+
+        const profileData = profileDataArray?.[0] || null;
 
         if (profileData && !profileError) {
           setProfile(profileData);
@@ -245,7 +322,7 @@ export default function OnboardingPage() {
           setFormData((prev) => ({
             ...prev,
             full_name: profileData.full_name || '',
-            email: session.user.email || '',
+            email: profileData.email || session.user.email || '',
             dni: profileData.dni || '',
             phone: profileData.phone || '',
             date_of_birth: profileData.date_of_birth || '',
@@ -259,6 +336,7 @@ export default function OnboardingPage() {
           }));
           console.log('✓ Datos del perfil cargados desde Supabase:', {
             full_name: profileData.full_name,
+            email: profileData.email,
             dni: profileData.dni,
             phone: profileData.phone,
             address: profileData.address,
@@ -317,7 +395,7 @@ export default function OnboardingPage() {
         console.log('[loadUserProfile] Verificando completitud del onboarding...');
         
         // Verificar datos personales
-        const hasPersonalData = profileData?.full_name && profileData?.dni && profileData?.phone && 
+        const hasPersonalData = profileData?.full_name && profileData?.dni && profileData?.email && profileData?.phone && 
                                 profileData?.date_of_birth && profileData?.address && profileData?.city && 
                                 profileData?.province && profileData?.latitude && profileData?.longitude;
         
@@ -371,6 +449,17 @@ export default function OnboardingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, authChecked]);
 
+  // Sincronizar email desde la sesión (Google OAuth) si no existe en formData
+  useEffect(() => {
+    if (session?.user?.email && (!formData.email || formData.email.trim() === '')) {
+      console.log('[useEffect] Sincronizando email desde sesión:', session.user.email);
+      setFormData((prev) => ({
+        ...prev,
+        email: session.user.email || '',
+      }));
+    }
+  }, [session?.user?.email]);
+
   // Paso actual del formulario
   const [currentStep, setCurrentStep] = useState(-1); // -1 significa "determinando"
   // Helper: validar localmente si el perfil está completo (combina `profile` y `formData`)
@@ -382,6 +471,7 @@ export default function OnboardingPage() {
     if (!effectiveOverride) {
       console.log('[getMissingProfileFields] Estados actuales:', {
         full_name: effective.full_name,
+        email: effective.email,
         dni: effective.dni,
         phone: effective.phone,
         date_of_birth: effective.date_of_birth,
@@ -475,7 +565,7 @@ export default function OnboardingPage() {
   // Estado de usuario simulado (puedes ajustar según tu lógica real)
   const [user, setUser] = useState<any>(() => {
     // Intentar obtener user ID desde session si existe
-    return { id: session?.user?.id || '', email: session?.user?.email || '' };
+    return { id: session?.user?.id || '', email: session?.user?.email || '', name: session?.user?.full_name || ''  };
   });
   // Estado de geolocalización
   const [geoLoading, setGeoLoading] = useState(false);
@@ -853,13 +943,13 @@ const saveSecurityPin = async () => {
 
                 {/* Resumen de campos completados */}
                 {profile && (
-                  <Alert className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                  <Alert className={profile.full_name && profile.dni && profile.email && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
                     ? "bg-green-50 border-green-200" 
                     : "bg-blue-50 border-blue-200"}>
-                    <AlertCircle className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                    <AlertCircle className={profile.full_name && profile.dni && profile.email && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
                       ? "h-4 w-4 text-green-600" 
                       : "h-4 w-4 text-blue-600"} />
-                    <AlertDescription className={profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
+                    <AlertDescription className={profile.full_name && profile.dni && profile.email && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude 
                       ? "text-green-800" 
                       : "text-blue-800"}>
                       {profile.full_name && profile.dni && profile.phone && profile.date_of_birth && profile.address && profile.city && profile.province && profile.latitude && profile.longitude ? (
@@ -892,8 +982,8 @@ const saveSecurityPin = async () => {
                   </Label>
                   <Input
                     id="full_name"
-                    placeholder="Juan García Pérez"
-                    value={formData.full_name}
+                    placeholder="Juan Carlos García Pérez"
+                    value={formData.full_name || session?.user?.name || ''}
                     onChange={(e) => handleInputChange('full_name', e.target.value)}
                     className={fieldErrors.full_name ? 'border-destructive' : ''}
                   />
@@ -914,7 +1004,7 @@ const saveSecurityPin = async () => {
                     id="email"
                     type="email"
                     placeholder="tu@email.com"
-                    value={formData.email}
+                    value={formData.email || user?.email || ''}
                     disabled={user?.email ? true : false}
                     onChange={(e) => handleInputChange('email', e.target.value)}
                     className={fieldErrors.email ? 'border-destructive' : ''}
@@ -1165,7 +1255,7 @@ const saveSecurityPin = async () => {
 
             {/* PASO 2: PREGUNTAS DE SEGURIDAD */}
             {currentStep === 1 && (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {securityQuestions.length === 0 ? (
                   // Si no hay preguntas
                   <Alert variant="default" className="mb-6">
@@ -1225,7 +1315,7 @@ const saveSecurityPin = async () => {
                           return (
                             <>
                               {hasNewResponse && (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
+                                <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-lg whitespace-nowrap">
                                   ✓ Respondida (nuevo)
                                 </span>
                               )}
@@ -1286,7 +1376,7 @@ const saveSecurityPin = async () => {
                         disabled={currentQuestionIndex === 0}
                         className="flex-1"
                       >
-                        ← Anterior
+                        <ChevronLeftIcon className="h-5 w-5 transition-transform group-hover:-translate-x-1" />
                       </Button>
                       <Button
                         variant="outline"
@@ -1294,7 +1384,7 @@ const saveSecurityPin = async () => {
                         disabled={currentQuestionIndex === securityQuestions.length - 1}
                         className="flex-1"
                       >
-                        Siguiente →
+                        <ChevronRightIcon className="h-5 w-5 text-primary-foreground transition-transform group-hover:translate-x-1" />
                       </Button>
                     </div>
 
@@ -1342,7 +1432,7 @@ const saveSecurityPin = async () => {
                     {/* Resumen de respuestas */}
                     <div className="bg-muted p-3 rounded-lg max-h-56 overflow-y-auto">
                       <p className="text-xs font-medium text-muted-foreground mb-2">Resumen:</p>
-                      <ul className="text-xs space-y-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <ul className="text-xs space-y-1 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {securityQuestions.map((q, idx) => {
                           const answerValue = answersData[q.id] || '';
                           const isAnterior = answerValue.startsWith('[ANTERIOR]:');
@@ -1360,7 +1450,7 @@ const saveSecurityPin = async () => {
                               <span className="text-muted-foreground">
                                 P{idx + 1}: {
                                   hasNewAnswer 
-                                    ? 'Nueva respuesta' 
+                                    ? 'Respondido' 
                                     : hasOldAnswer 
                                       ? 'Respondida (anterior)' 
                                       : 'Sin responder'

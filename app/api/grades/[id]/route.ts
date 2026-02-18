@@ -14,7 +14,38 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user || user.user_metadata?.role !== 'admin') {
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+
+    const userRole = user.user_metadata?.role
+
+    // Get the grade to find which course it belongs to
+    const { data: gradeData } = await supabase
+      .from('grades')
+      .select('course_id')
+      .eq('id', params.id)
+      .single()
+
+    if (!gradeData) {
+      return NextResponse.json({ error: 'Grade not found' }, { status: 404 })
+    }
+
+    // Check permissions
+    if (userRole === 'admin') {
+      // Admins can update any grade
+    } else if (userRole === 'teacher') {
+      // Teachers can only update grades in their own courses
+      const { data: courseData } = await supabase
+        .from('courses')
+        .select('teacher_id')
+        .eq('id', gradeData.course_id)
+        .single()
+
+      if (!courseData || courseData.teacher_id !== user.id) {
+        return NextResponse.json({ error: 'Teachers can only update grades in their own courses' }, { status: 403 })
+      }
+    } else {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -31,7 +62,38 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  const userRole = user.user_metadata?.role
+
+  // Get the grade to find which course it belongs to
+  const { data: gradeData } = await supabase
+    .from('grades')
+    .select('course_id')
+    .eq('id', params.id)
+    .single()
+
+  if (!gradeData) {
+    return NextResponse.json({ error: 'Grade not found' }, { status: 404 })
+  }
+
+  // Check permissions
+  if (userRole === 'admin') {
+    // Admins can delete any grade
+  } else if (userRole === 'teacher') {
+    // Teachers can only delete grades in their own courses
+    const { data: courseData } = await supabase
+      .from('courses')
+      .select('teacher_id')
+      .eq('id', gradeData.course_id)
+      .single()
+
+    if (!courseData || courseData.teacher_id !== user.id) {
+      return NextResponse.json({ error: 'Teachers can only delete grades in their own courses' }, { status: 403 })
+    }
+  } else {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

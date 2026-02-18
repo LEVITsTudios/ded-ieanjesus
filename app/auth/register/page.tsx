@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -56,7 +57,21 @@ export default function RegisterPage() {
   const supabase = createClient();
   const [oauth, setOauth] = useState<string | null>(null);
   const [oauthEmail, setOauthEmail] = useState<string>("");
-
+   const router = useRouter();
+  // Auto-redirect if session exists
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          router.push('/dashboard');
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    checkSession();
+  }, [supabase, router]);
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
