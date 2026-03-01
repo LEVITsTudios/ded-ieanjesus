@@ -79,6 +79,14 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      // Validar que el cliente Supabase esté configurado correctamente
+      if (!supabase) {
+        throw new Error("Supabase client is not initialized");
+      }
+
+      // Log para debugging
+      console.log('[Login] Attempting authentication with email:', email);
+
       const { data, error: signInError } =
         await supabase.auth.signInWithPassword({
           email,
@@ -86,12 +94,21 @@ export default function LoginPage() {
         });
 
       if (signInError) {
+        console.error('[Login] Sign in error:', {
+          message: signInError.message,
+          status: (signInError as any).status,
+          code: (signInError as any).code
+        });
+
         if (signInError.message.includes("Invalid login credentials")) {
           setError("Correo electrónico o contraseña incorrectos");
         } else if (signInError.message.includes("Email not confirmed")) {
           setError(
             "Tu correo electrónico no ha sido verificado. Por favor revisa tu bandeja de entrada."
           );
+        } else if (signInError.message.includes("Failed to fetch") || signInError.message.includes("NetworkError")) {
+          setError("No se puede conectar al servicio de autenticación. Verifica tu conexión a internet e intenta de nuevo.");
+          console.error('[Login] Network connectivity issue:', signInError);
         } else {
           setError(signInError.message);
         }
@@ -133,7 +150,19 @@ export default function LoginPage() {
         completeLogin(data.user.id);
       }
     } catch (err) {
-      setError("Ocurrió un error inesperado. Por favor intenta de nuevo.");
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('[Login] Unexpected error:', {
+        message: errorMessage,
+        stack: err instanceof Error ? err.stack : undefined
+      });
+
+      if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+        setError("Error de conexión. Verifica tu conexión a internet e intenta de nuevo.");
+      } else if (errorMessage.includes("Supabase client is not initialized")) {
+        setError("Error de configuración. Por favor recarga la página.");
+      } else {
+        setError("Ocurrió un error inesperado. Por favor intenta de nuevo.");
+      }
     } finally {
       setLoading(false);
     }

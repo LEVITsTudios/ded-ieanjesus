@@ -273,27 +273,67 @@ export default function OnboardingPage() {
   useEffect(() => {
     const checkSession = async () => {
       try {
+        console.log('[Onboarding] Verificando sesión...');
         const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('[Onboarding] Error getting session:', {
+            message: error.message,
+            code: (error as any).code,
+            status: (error as any).status
+          });
+          
+          // Manejo específico del error "Failed to fetch"
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            console.error('[Onboarding] Network connectivity issue detected');
+            setError('Problema de conexión. Verifica tu conexión a internet.');
+            // No hacer redirect específico, permitir que el usuario vea el error
+            setAuthChecked(true);
+            return;
+          }
+          
+          router.replace('/auth/login');
+          return;
+        }
+        
         if (!data?.session) {
+          console.log('[Onboarding] No session found, redirecting to login');
           router.replace('/auth/login');
         } else {
+          console.log('[Onboarding] ✓ Session found for user:', data.session.user.email);
           setSession(data.session);
           setUser({ id: data.session.user.id, email: data.session.user.email });
           
           // Verificar si el perfil ya está completo
-          const completion = await checkProfileCompletion(supabase, data.session.user.id);
-          if (completion.isComplete) {
-            // Si está completo, redirigir directamente al dashboard
-            console.log('✓ Perfil completo - Redirigiendo al dashboard');
-            router.replace('/dashboard');
-            return;
+          try {
+            const completion = await checkProfileCompletion(supabase, data.session.user.id);
+            if (completion.isComplete) {
+              // Si está completo, redirigir directamente al dashboard
+              console.log('✓ Perfil completo - Redirigiendo al dashboard');
+              router.replace('/dashboard');
+              return;
+            }
+          } catch (err) {
+            console.error('[Onboarding] Error checking profile completion:', err);
+            // Continuar permitiendo que el usuario complete su perfil
           }
         }
       } catch (err) {
-        console.error('Error checking session:', err);
-        router.replace('/auth/login');
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error('[Onboarding] Unexpected error checking session:', {
+          message: errorMsg,
+          stack: err instanceof Error ? err.stack : undefined
+        });
+        
+        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          setError('Problema de conexión. Verifica tu conexión a internet.');
+          setAuthChecked(true);
+        } else {
+          router.replace('/auth/login');
+        }
+      } finally {
+        setAuthChecked(true);
       }
-      setAuthChecked(true);
     };
     checkSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,105 +346,159 @@ export default function OnboardingPage() {
 
       try {
         setLoading(true);
+        console.log('[loadUserProfile] Iniciando carga de perfil para usuario:', session.user.id);
 
         // Obtener datos del usuario de la tabla profiles
-        const { data: profileDataArray, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .limit(1);
+        let profileData: any = null;
+        try {
+          const { data: profileDataArray, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .limit(1);
 
-        const profileData = profileDataArray?.[0] || null;
-
-        if (profileData && !profileError) {
-          setProfile(profileData);
-          // Pre-llenar el formulario con datos existentes desde la BD
-          setFormData((prev) => ({
-            ...prev,
-            full_name: profileData.full_name || '',
-            email: profileData.email || session.user.email || '',
-            dni: profileData.dni || '',
-            phone: profileData.phone || '',
-            date_of_birth: profileData.date_of_birth || '',
-            address: profileData.address || '',
-            city: profileData.city || '',
-            province: profileData.province || '',
-            postal_code: profileData.postal_code || '',
-            latitude: profileData.latitude || null,
-            longitude: profileData.longitude || null,
-            location_url: profileData.location_url || '',
-          }));
-          console.log('✓ Datos del perfil cargados desde Supabase:', {
-            full_name: profileData.full_name,
-            email: profileData.email,
-            dni: profileData.dni,
-            phone: profileData.phone,
-            address: profileData.address,
-          });
-        } else if (profileError && profileError.code !== 'PGRST116') {
-          console.warn('Error loading profile:', profileError);
+          if (profileError) {
+            if (profileError.message.includes('Failed to fetch') || profileError.message.includes('NetworkError')) {
+              console.error('[loadUserProfile] Network error loading profile:', profileError);
+              setError('Problema de conexión al cargar el perfil. Verifica tu conexión a internet.');
+              return;
+            }
+            console.warn('Error loading profile:', profileError);
+          } else {
+            profileData = profileDataArray?.[0] || null;
+            
+            if (profileData) {
+              setProfile(profileData);
+              setFormData((prev) => ({
+                ...prev,
+                full_name: profileData.full_name || '',
+                email: profileData.email || session.user.email || '',
+                dni: profileData.dni || '',
+                phone: profileData.phone || '',
+                date_of_birth: profileData.date_of_birth || '',
+                address: profileData.address || '',
+                city: profileData.city || '',
+                province: profileData.province || '',
+                postal_code: profileData.postal_code || '',
+                latitude: profileData.latitude || null,
+                longitude: profileData.longitude || null,
+                location_url: profileData.location_url || '',
+              }));
+              console.log('✓ Datos del perfil cargados desde Supabase');
+            }
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          console.error('[loadUserProfile] Unexpected error loading profile:', errorMsg);
+          if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+            setError('Problema de conexión. Verifica tu conexión a internet.');
+            return;
+          }
         }
 
         // Cargar preguntas de seguridad
-        const { data: questionsData, error: questionsError } = await supabase
-          .from('security_questions')
-          .select('*')
-          .eq('is_active', true);
-          
+        let questionsData: any[] = [];
+        let answersMap: Record<string, string> = {};
+        try {
+          const { data, error: questionsError } = await supabase
+            .from('security_questions')
+            .select('*')
+            .eq('is_active', true);
 
-        if (questionsData && !questionsError) {
-          setSecurityQuestions(questionsData);
+          if (questionsError) {
+            if (questionsError.message.includes('Failed to fetch') || questionsError.message.includes('NetworkError')) {
+              console.error('[loadUserProfile] Network error loading questions:', questionsError);
+              setError('Problema de conexión al cargar preguntas. Verifica tu conexión a internet.');
+              return;
+            }
+            console.warn('Error loading security questions:', questionsError);
+          } else {
+            questionsData = data || [];
+            setSecurityQuestions(questionsData);
 
-          // Cargar respuestas existentes desde user_security_answers (incluir el valor de la respuesta)
-          const { data: answersData, error: answersError } = await supabase
-            .from('user_security_answers')
-            .select('question_id, answer_hash')
-            .eq('user_id', session.user.id);
+            // Cargar respuestas existentes desde user_security_answers
+            try {
+              const { data: answersDataFromDB, error: answersError } = await supabase
+                .from('user_security_answers')
+                .select('question_id, answer_hash')
+                .eq('user_id', session.user.id);
 
-          if (answersData && !answersError && answersData.length > 0) {
-            const answersMap: Record<string, string> = {};
-            // Cargar respuestas anteriores con prefijo especial para identificarlas
-            answersData.forEach((ans: any) => {
-              if (ans.answer_hash) {
-                // Guardar con prefijo [ANTERIOR]: para mantener el valor pero identificar que es cargada
-                answersMap[ans.question_id] = `[ANTERIOR]:${ans.answer_hash}`;
+              if (answersError) {
+                if (answersError.message.includes('Failed to fetch') || answersError.message.includes('NetworkError')) {
+                  console.error('[loadUserProfile] Network error loading answers:', answersError);
+                  setError('Problema de conexión al cargar respuestas. Verifica tu conexión a internet.');
+                  return;
+                }
+                console.warn('Error loading security answers:', answersError);
+              } else if (answersDataFromDB && answersDataFromDB.length > 0) {
+                answersDataFromDB.forEach((ans: any) => {
+                  if (ans.answer_hash) {
+                    answersMap[ans.question_id] = `[ANTERIOR]:${ans.answer_hash}`;
+                  }
+                });
+                setAnswersData(answersMap);
+                console.log('✓ Respuestas de seguridad cargadas:', answersDataFromDB.length);
               }
-            });
-            setAnswersData(answersMap);
-            console.log('✓ Respuestas de seguridad cargadas:', answersData.length + ' total');
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              console.error('[loadUserProfile] Unexpected error loading answers:', errorMsg);
+              if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+                setError('Problema de conexión al cargar respuestas. Verifica tu conexión a internet.');
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          console.error('[loadUserProfile] Unexpected error loading questions:', errorMsg);
+          if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+            setError('Problema de conexión al cargar preguntas. Verifica tu conexión a internet.');
+            return;
           }
         }
 
         // Cargar PIN existente desde security_pins
-        const { data: pinData, error: pinError } = await supabase
-          .from('security_pins')
-          .select('pin_hash, is_active')
-          .eq('user_id', session.user.id)
-          .eq('is_active', true)
-          .maybeSingle();
+        let pinData: any = null;
+        try {
+          const { data, error: pinError } = await supabase
+            .from('security_pins')
+            .select('pin_hash, is_active')
+            .eq('user_id', session.user.id)
+            .eq('is_active', true)
+            .maybeSingle();
 
-        if (pinData && !pinError) {
-          // PIN ya existe
-          console.log('✓ PIN de seguridad encontrado');
-          setHasExistingPin(true);
-        } else if (pinError && pinError.code !== 'PGRST116') {
-          console.warn('Error loading PIN:', pinError);
+          if (pinError) {
+            if (pinError.message.includes('Failed to fetch') || pinError.message.includes('NetworkError')) {
+              console.error('[loadUserProfile] Network error loading PIN:', pinError);
+              setError('Problema de conexión al cargar PIN. Verifica tu conexión a internet.');
+              return;
+            }
+            console.warn('Error loading PIN:', pinError);
+          } else if (data) {
+            pinData = data;
+            console.log('✓ PIN de seguridad encontrado');
+            setHasExistingPin(true);
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          console.error('[loadUserProfile] Unexpected error loading PIN:', errorMsg);
+          if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+            setError('Problema de conexión al cargar PIN. Verifica tu conexión a internet.');
+            return;
+          }
         }
 
         // --- Determinar cuál es el primer step incompleto ---
         console.log('[loadUserProfile] Verificando completitud del onboarding...');
         
-        // Verificar datos personales
         const hasPersonalData = profileData?.full_name && profileData?.dni && profileData?.email && profileData?.phone && 
                                 profileData?.date_of_birth && profileData?.address && profileData?.city && 
                                 profileData?.province && profileData?.latitude && profileData?.longitude;
         
-        // Verificar respuestas de seguridad (al menos 3)
-        const answeredCount = (questionsData || []).length > 0 ? 
-          (Object.values(answersData || {}).filter((a: any) => a && a.trim()).length) : 0;
-        const hasSecurityAnswers = (questionsData || []).length === 0 || answeredCount >= 3;
+        const answeredCount = questionsData.length > 0 ? 
+          (Object.values(answersMap || {}).filter((a: any) => a && a.trim()).length) : 0;
+        const hasSecurityAnswers = questionsData.length === 0 || answeredCount >= 3;
         
-        // Verificar PIN
         const hasPin = pinData ? true : false;
         
         console.log('[loadUserProfile] Estado de completitud:', {
@@ -412,7 +506,7 @@ export default function OnboardingPage() {
           hasSecurityAnswers,
           hasPin,
           answeredCount,
-          questionsCount: questionsData?.length || 0
+          questionsCount: questionsData.length || 0
         });
         
         // Si todo está completo, redirigir al dashboard
@@ -437,9 +531,18 @@ export default function OnboardingPage() {
           setCurrentStep(0);
         }
       } catch (err: any) {
-        console.error('Error loading user profile:', err);
-        setError('Error al cargar el perfil. Intenta de nuevo.');
-        setCurrentStep(0); // Mostrar step 0 por defecto si hay error
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error('[loadUserProfile] Unexpected error:', {
+          message: errorMsg,
+          stack: err instanceof Error ? err.stack : undefined
+        });
+        
+        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+          setError('Problema de conexión con el servidor. Verifica tu conexión a internet.');
+        } else {
+          setError('Error al cargar el perfil. Intenta de nuevo.');
+        }
+        setCurrentStep(0); // Mostrar step 0 por defecto
       } finally {
         setLoading(false);
       }

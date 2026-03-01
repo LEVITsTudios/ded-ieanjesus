@@ -17,24 +17,36 @@ import {
   AlertCircle,
   Users,
   TrendingUp,
+  Trash2,
+  Edit,
 } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import type { UserRole } from "@/lib/types"
 
+interface AttendanceRecord {
+  id: string
+  student_id: string
+  course_id: string
+  meeting_id?: string
+  date: string
+  status: string
+  notes?: string
+  recorded_by?: string
+  created_at: string
+  student?: { id: string; full_name: string }
+  course?: { id: string; name: string }
+  meeting?: { id: string; title?: string; meeting_date: string }
+  recorder?: { id: string; full_name: string }
+}
+
 interface AttendanceViewProps {
   userRole: UserRole
   userId: string
+  attendances: AttendanceRecord[]
 }
 
-const attendanceData = [
-  { id: 1, student: "Maria Garcia", course: "Matematicas", date: "2026-02-05", status: "present" },
-  { id: 2, student: "Carlos Lopez", course: "Matematicas", date: "2026-02-05", status: "present" },
-  { id: 3, student: "Ana Martinez", course: "Matematicas", date: "2026-02-05", status: "absent" },
-  { id: 4, student: "Roberto Sanchez", course: "Matematicas", date: "2026-02-05", status: "late" },
-  { id: 5, student: "Laura Fernandez", course: "Matematicas", date: "2026-02-05", status: "excused" },
-  { id: 6, student: "Pedro Ramirez", course: "Matematicas", date: "2026-02-05", status: "present" },
-]
+// placeholder static data removed; real records will come from props
 
 const statusConfig = {
   present: {
@@ -67,19 +79,92 @@ const statusConfig = {
   },
 }
 
-export function AttendanceView({ userRole, userId }: AttendanceViewProps) {
+export function AttendanceView({ userRole, userId, attendances }: AttendanceViewProps) {
   const [date, setDate] = useState<Date>(new Date())
   const [selectedCourse, setSelectedCourse] = useState<string>("all")
+  const [selectedMeeting, setSelectedMeeting] = useState<string>("all")
+  const [records, setRecords] = useState<AttendanceRecord[]>(attendances)
 
-  const stats = {
-    present: attendanceData.filter((a) => a.status === "present").length,
-    absent: attendanceData.filter((a) => a.status === "absent").length,
-    late: attendanceData.filter((a) => a.status === "late").length,
-    excused: attendanceData.filter((a) => a.status === "excused").length,
+  const handleDelete = async (id: string) => {
+    if (!confirm("¿Estás seguro de que deseas eliminar este registro de asistencia?")) return;
+    try {
+      const res = await fetch(`/api/attendance/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Error al eliminar");
+      }
+      setRecords((prev) => prev.filter((r) => r.id !== id));
+    } catch (err: any) {
+      console.error("Error deleting attendance:", err);
+      alert(err.message || "No se pudo eliminar el registro");
+    }
   }
 
-  const totalStudents = attendanceData.length
-  const attendanceRate = ((stats.present + stats.excused) / totalStudents) * 100
+  const handleEdit = async (id: string) => {
+    const newStatus = prompt(
+      "Nuevo estado (present, absent, late, excused):"
+    ) as string | null;
+    if (!newStatus) return;
+    const valid = ["present", "absent", "late", "excused"];
+    if (!valid.includes(newStatus)) {
+      alert("Estado inválido");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/attendance/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al actualizar");
+
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
+      );
+    } catch (err: any) {
+      console.error("Error updating attendance:", err);
+      alert(err.message || "No se pudo actualizar el registro");
+    }
+  }
+
+  // compute unique courses and meetings from attendance data for filter menus
+  const courseOptions = Array.from(
+    new Map(
+      records
+        .map((r) => r.course)
+        .filter(Boolean)
+        .map((c) => [c!.id, c!])
+    ).values()
+  )
+  const meetingOptions = Array.from(
+    new Map(
+      records
+        .map((r) => r.meeting)
+        .filter(Boolean)
+        .map((m) => [m!.id, m!])
+    ).values()
+  )
+
+  const filtered = records.filter((r) => {
+    const matchesDate = r.date === format(date, 'yyyy-MM-dd')
+    const matchesCourse =
+      selectedCourse === 'all' || r.course?.id === selectedCourse
+    const matchesMeeting =
+      selectedMeeting === 'all' || r.meeting?.id === selectedMeeting
+    const matchesUser = userRole === 'student' ? r.student_id === userId : true
+    return matchesDate && matchesCourse && matchesMeeting && matchesUser
+  })
+
+  const stats = {
+    present: filtered.filter((a) => a.status === "present").length,
+    absent: filtered.filter((a) => a.status === "absent").length,
+    late: filtered.filter((a) => a.status === "late").length,
+    excused: filtered.filter((a) => a.status === "excused").length,
+  }
+
+  const totalStudents = filtered.length
+  const attendanceRate = totalStudents > 0 ? ((stats.present + stats.excused) / totalStudents) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -181,9 +266,25 @@ export function AttendanceView({ userRole, userId }: AttendanceViewProps) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los cursos</SelectItem>
-              <SelectItem value="matematicas">Matematicas</SelectItem>
-              <SelectItem value="espanol">Espanol</SelectItem>
-              <SelectItem value="ciencias">Ciencias</SelectItem>
+              {courseOptions.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedMeeting} onValueChange={setSelectedMeeting}>
+            <SelectTrigger className="w-[240px]">
+              <SelectValue placeholder="Seleccionar reunión" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las reuniones</SelectItem>
+              {meetingOptions.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {`${m.title || 'Clase'} (${new Date(m.meeting_date).toLocaleDateString()})`}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </CardContent>
@@ -207,9 +308,12 @@ export function AttendanceView({ userRole, userId }: AttendanceViewProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {attendanceData.map((record) => {
+            {filtered.map((record) => {
               const status = statusConfig[record.status as keyof typeof statusConfig]
               const StatusIcon = status.icon
+              const studentName = record.student?.full_name || "-"
+              const courseName = record.course?.name || "-"
+
               return (
                 <div
                   key={record.id}
@@ -218,24 +322,52 @@ export function AttendanceView({ userRole, userId }: AttendanceViewProps) {
                   <div className="flex items-center gap-4">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-accent/20">
                       <span className="text-sm font-medium text-foreground">
-                        {record.student
+                        {studentName
                           .split(" ")
                           .map((n) => n[0])
                           .join("")}
                       </span>
                     </div>
                     <div>
-                      <p className="font-medium text-foreground">{record.student}</p>
-                      <p className="text-sm text-muted-foreground">{record.course}</p>
+                      <p className="font-medium text-foreground">{studentName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {courseName}
+                        {r.meeting && (
+                          <span className="ml-2 italic">
+                            ({r.meeting.title || 'Clase'})
+                          </span>
+                        )}
+                      </p>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={`flex items-center gap-1 ${status.bg} ${status.color} ${status.border}`}
-                  >
-                    <StatusIcon className="h-3 w-3" />
-                    {status.label}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`flex items-center gap-1 ${status.bg} ${status.color} ${status.border}`}
+                    >
+                      <StatusIcon className="h-3 w-3" />
+                      {status.label}
+                    </Badge>
+                    {(userRole === "teacher" || userRole === "admin") && (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleEdit(record.id)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => handleDelete(record.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               )
             })}

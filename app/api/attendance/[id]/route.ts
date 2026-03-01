@@ -30,7 +30,7 @@ export async function PUT(
   try {
     const { id } = await params
     const body = await request.json()
-    const { status, notes } = body
+    const { status, notes, meeting_id, course_id } = body
 
     // Validate status if provided
     if (status) {
@@ -60,10 +60,10 @@ export async function PUT(
       )
     }
 
-    // Get current attendance record to verify ownership
+    // Get current attendance record to verify ownership and meeting association
     const { data: attendanceData } = await supabase
       .from('attendances')
-      .select('course_id')
+      .select('course_id, meeting_id')
       .eq('id', id)
       .single()
 
@@ -71,25 +71,49 @@ export async function PUT(
       return NextResponse.json({ error: 'Attendance record not found' }, { status: 404 })
     }
 
-    // If teacher, verify they own the course
+    // If teacher, verify they own the course OR are associated with the meeting
     if (userRole === 'teacher') {
-      const { data: courseData } = await supabase
-        .from('courses')
-        .select('teacher_id')
-        .eq('id', attendanceData.course_id)
-        .single()
-
-      if (!courseData || courseData.teacher_id !== user.id) {
-        return NextResponse.json(
-          { error: 'Teachers can only update attendance for their own courses' },
-          { status: 403 }
-        )
+      if (attendanceData.meeting_id) {
+        const { data: meetingData } = await supabase
+          .from('meetings')
+          .select('organizer_id')
+          .eq('id', attendanceData.meeting_id)
+          .single()
+        if (!meetingData) {
+          return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
+        }
+        const { data: mp } = await supabase
+          .from('meeting_participants')
+          .select('id')
+          .eq('meeting_id', attendanceData.meeting_id)
+          .eq('user_id', user.id)
+          .limit(1)
+        if (meetingData.organizer_id !== user.id && (!mp || mp.length === 0)) {
+          return NextResponse.json(
+            { error: 'Teachers can only update attendance for meetings they run or attend' },
+            { status: 403 }
+          )
+        }
+      } else {
+        const { data: courseData } = await supabase
+          .from('courses')
+          .select('teacher_id')
+          .eq('id', attendanceData.course_id)
+          .single()
+        if (!courseData || courseData.teacher_id !== user.id) {
+          return NextResponse.json(
+            { error: 'Teachers can only update attendance for their own courses' },
+            { status: 403 }
+          )
+        }
       }
     }
 
     const updateData: any = {}
     if (status) updateData.status = status
     if (notes !== undefined) updateData.notes = notes
+    if (meeting_id !== undefined) updateData.meeting_id = meeting_id
+    if (course_id !== undefined) updateData.course_id = course_id
 
     const { data, error } = await supabase
       .from('attendances')
@@ -131,30 +155,52 @@ export async function DELETE(
     )
   }
 
-  // Get attendance record to verify ownership
-  const { data: attendanceData } = await supabase
-    .from('attendances')
-    .select('course_id')
-    .eq('id', id)
-    .single()
-
-  if (!attendanceData) {
-    return NextResponse.json({ error: 'Attendance record not found' }, { status: 404 })
-  }
-
-  // If teacher, verify they own the course
-  if (userRole === 'teacher') {
-    const { data: courseData } = await supabase
-      .from('courses')
-      .select('teacher_id')
-      .eq('id', attendanceData.course_id)
+// Get attendance record to verify ownership and meeting
+    const { data: attendanceData } = await supabase
+      .from('attendances')
+      .select('course_id, meeting_id')
+      .eq('id', id)
       .single()
 
-    if (!courseData || courseData.teacher_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Teachers can only delete attendance for their own courses' },
-        { status: 403 }
-      )
+    if (!attendanceData) {
+      return NextResponse.json({ error: 'Attendance record not found' }, { status: 404 })
+    }
+
+    // If teacher, verify they own the course or meeting
+    if (userRole === 'teacher') {
+      if (attendanceData.meeting_id) {
+        const { data: meetingData } = await supabase
+          .from('meetings')
+          .select('organizer_id')
+          .eq('id', attendanceData.meeting_id)
+          .single()
+        if (!meetingData) {
+          return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
+        }
+        const { data: mp } = await supabase
+          .from('meeting_participants')
+          .select('id')
+          .eq('meeting_id', attendanceData.meeting_id)
+          .eq('user_id', user.id)
+          .limit(1)
+        if (meetingData.organizer_id !== user.id && (!mp || mp.length === 0)) {
+          return NextResponse.json(
+            { error: 'Teachers can only delete attendance for meetings they run or attend' },
+            { status: 403 }
+          )
+        }
+      } else {
+        const { data: courseData } = await supabase
+          .from('courses')
+          .select('teacher_id')
+          .eq('id', attendanceData.course_id)
+          .single()
+        if (!courseData || courseData.teacher_id !== user.id) {
+          return NextResponse.json(
+            { error: 'Teachers can only delete attendance for their own courses' },
+            { status: 403 }
+          )
+        }
     }
   }
 

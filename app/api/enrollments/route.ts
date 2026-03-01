@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+// simple JWT decoder used in several routes
 function decodeJwt(token: string): Record<string, any> | null {
   try {
     const parts = token.split('.')
@@ -8,6 +9,7 @@ function decodeJwt(token: string): Record<string, any> | null {
 
     let decodedPayload: string
     const payload = parts[1]
+    // support Buffer in Node/edge and atob in browser
     if (typeof Buffer !== 'undefined') {
       decodedPayload = Buffer.from(payload, 'base64').toString('utf-8')
     } else {
@@ -15,6 +17,7 @@ function decodeJwt(token: string): Record<string, any> | null {
     }
 
     const parsed = JSON.parse(decodedPayload)
+    // check expiration
     if (parsed.exp && Date.now() / 1000 > parsed.exp) {
       console.error('[decodeJwt] token expired')
       return null
@@ -26,11 +29,11 @@ function decodeJwt(token: string): Record<string, any> | null {
   }
 }
 
-// GET all attendances - accessible to authenticated users
+// GET enrollments, optional filters
 export async function GET(request: Request) {
   const supabase = await createClient()
 
-  // fallback to bearer token if cookie missing
+  // token header fallback - decode JWT to set currentUser
   let currentUser: any = null
   const authHeader = request.headers.get('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -61,51 +64,43 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const courseId = searchParams.get('course_id')
   const studentId = searchParams.get('student_id')
-  const meetingId = searchParams.get('meeting_id')
-  const date = searchParams.get('date')
 
-  let query = supabase.from('attendances').select('*')
-  
-  if (meetingId) query = query.eq('meeting_id', meetingId)
-  else if (courseId) query = query.eq('course_id', courseId)
+  let query = supabase.from('enrollments').select(`
+      id,
+      status,
+      enrollment_date,
+      student:profiles(id, full_name, email),
+      course:courses(id, name, code)
+    `)
+
+  if (courseId) query = query.eq('course_id', courseId)
   if (studentId) query = query.eq('student_id', studentId)
-  if (date) query = query.eq('date', date)
 
-  const { data, error } = await query.order('date', { ascending: false })
-  
+  const { data, error } = await query.order('created_at', { ascending: false })
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ attendances: data })
+  return NextResponse.json({ enrollments: data })
 }
 
-// CREATE attendance record
+// CREATE enrollment
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { student_id, course_id, meeting_id, date, status, notes } = body
+    const { student_id, course_id, status } = body
 
-    // Validate required fields
-    if (!student_id || !(course_id || meeting_id) || !date || !status) {
+    if (!student_id || !course_id) {
       return NextResponse.json(
-        { error: 'Missing required fields: student_id, date, status and either course_id or meeting_id' },
-        { status: 400 }
-      )
-    }
-
-    // Validate status enum
-    const validStatuses = ['present', 'absent', 'late', 'excused']
-    if (!validStatuses.includes(status)) {
-      return NextResponse.json(
-        { error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
+        { error: 'Missing required fields: student_id, course_id' },
         { status: 400 }
       )
     }
 
     const supabase = await createClient()
 
-    // authenticate using header or cookie
+    // authenticate via token header (preferred) or cookie
     let user: any = null
     const authHeader = request.headers.get('authorization')
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -132,85 +127,51 @@ export async function POST(request: Request) {
     }
 
     const userRole = user.user_metadata?.role
-    
-    // Only admin or teachers can create attendance records
+
     if (userRole !== 'admin' && userRole !== 'teacher') {
       return NextResponse.json(
-        { error: 'Only admins and teachers can record attendance' },
+        { error: 'Only admins and teachers can create enrollments' },
         { status: 403 }
       )
     }
 
-    // If teacher, verify they have permission for the course or meeting
+    // if teacher, ensure they own the course
     if (userRole === 'teacher') {
-      if (meeting_id) {
-        const { data: meetingData } = await supabase
-          .from('meetings')
-          .select('organizer_id, course_id')
-          .eq('id', meeting_id)
-          .single()
-        if (!meetingData) {
-          return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
-        }
-        // teacher must be organizer or participant
-        const { data: mp } = await supabase
-          .from('meeting_participants')
-          .select('id')
-          .eq('meeting_id', meeting_id)
-          .eq('user_id', user.id)
-          .limit(1)
-        if (meetingData.organizer_id !== user.id && (!mp || mp.length === 0)) {
-          return NextResponse.json(
-            { error: 'Teachers can only record attendance for meetings they run or attend' },
-            { status: 403 }
-          )
-        }
-        // set course_id from meeting
-        body.course_id = meetingData.course_id
-      } else {
-        const { data: courseData } = await supabase
-          .from('courses')
-          .select('teacher_id')
-          .eq('id', course_id)
-          .single()
-        if (!courseData || courseData.teacher_id !== user.id) {
-          return NextResponse.json(
-            { error: 'Teachers can only create attendance for their own courses' },
-            { status: 403 }
-          )
-        }
+      const { data: courseData } = await supabase
+        .from('courses')
+        .select('teacher_id')
+        .eq('id', course_id)
+        .single()
+      if (!courseData || courseData.teacher_id !== user.id) {
+        return NextResponse.json(
+          { error: 'Teachers can only enroll students in their own courses' },
+          { status: 403 }
+        )
       }
     }
 
-    const insertObj: any = {
-      student_id,
-      date,
-      status,
-      notes,
-      recorded_by: user.id,
-    }
-    if (meeting_id) insertObj.meeting_id = meeting_id
-    if (course_id) insertObj.course_id = course_id
+    const insertPayload: any = { student_id, course_id }
+    if (status) insertPayload.status = status
 
     const { data, error } = await supabase
-      .from('attendances')
-      .insert([insertObj])
+      .from('enrollments')
+      .insert([insertPayload])
       .select()
 
     if (error) {
-      // Check if it's a unique constraint violation
       if (error.code === '23505') {
         return NextResponse.json(
-          { error: 'Attendance record already exists for this student and meeting/date' },
+          { error: 'Student already enrolled in this course' },
           { status: 409 }
         )
       }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ attendance: data?.[0] }, { status: 201 })
-  } catch (error) {
-    console.error('Attendance POST error:', error)
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    return NextResponse.json({ enrollment: data?.[0] }, { status: 201 })
+  } catch (error: any) {
+    console.error('[Enrollments POST] unhandled error:', error)
+    const msg = error?.message || 'Invalid request'
+    return NextResponse.json({ error: msg }, { status: 400 })
   }
 }

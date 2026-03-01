@@ -283,6 +283,56 @@ export class CourseService extends BaseService {
 }
 
 // ============================================================================
+// MEETING SERVICE - Gestión de reuniones / sesiones de clase
+// ============================================================================
+
+export const MeetingSchema = z.object({
+  title: z.string().min(2),
+  description: z.string().optional(),
+  meeting_date: z.string(), // ISO
+  duration_minutes: z.number().int().min(1).default(60),
+  location: z.string().optional(),
+  meeting_url: z.string().url().optional(),
+  participants: z.number().int().optional(),
+  meeting_type: z.enum(['general','parent_teacher','staff','class']),
+  course_id: z.string().uuid().optional(),
+  topic: z.string().optional(),
+  materials_url: z.string().url().optional(),
+  teacher_attended: z.boolean().optional(),
+  feedback: z.string().optional(),
+})
+
+export class MeetingService extends BaseService {
+  constructor() {
+    super('meetings')
+  }
+
+  async listByCourse(courseId: string) {
+    return await this.list({ filters: { course_id: courseId } })
+  }
+
+  async listUpcoming() {
+    try {
+      const { supabase } = await this.getAuthenticatedClient()
+      const { data, error } = await supabase
+        .from('meetings')
+        .select('*')
+        .gte('meeting_date', new Date().toISOString())
+        .order('meeting_date', { ascending: true })
+      if (error) return { success: false, error }
+      return { success: true, data }
+    } catch (error) {
+      return this.handleError(error, 'listUpcoming')
+    }
+  }
+
+  private handleError(error: any, operation: string) {
+    console.error(`[MeetingService.${operation}]`, error)
+    return { success: false, error: error.message || 'Operation failed' }
+  }
+}
+
+// ============================================================================
 // GRADE SERVICE - Gestión de Calificaciones
 // ============================================================================
 
@@ -438,6 +488,34 @@ export class EnrollmentService extends BaseService {
 
     return result
   }
+
+  /**
+   * Crear una nueva inscripción
+   */
+  async createEnrollment(studentId: string, courseId: string, status = 'active') {
+    try {
+      const payload: any = { student_id: studentId, course_id: courseId }
+      if (status) payload.status = status
+      const { success, data, error } = await this.create(payload)
+      if (!success) throw error
+      return { success: true, data }
+    } catch (error) {
+      return this.handleError(error, 'createEnrollment')
+    }
+  }
+
+  /**
+   * Eliminar una inscripción por id
+   */
+  async deleteEnrollment(id: string) {
+    try {
+      const { success, error } = await this.delete(id)
+      if (!success) throw error
+      return { success: true }
+    } catch (error) {
+      return this.handleError(error, 'deleteEnrollment')
+    }
+  }
 }
 
 // ============================================================================
@@ -452,7 +530,7 @@ export class AttendanceService extends BaseService {
   /**
    * Obtener porcentaje de asistencia de un estudiante
    */
-  async getStudentAttendancePercentage(studentId: string, courseId?: string): Promise<any> {
+  async getStudentAttendancePercentage(studentId: string, opts?: { courseId?: string; meetingId?: string }): Promise<any> {
     try {
       const { supabase } = await this.getAuthenticatedClient()
 
@@ -461,8 +539,10 @@ export class AttendanceService extends BaseService {
         .select('status')
         .eq('student_id', studentId)
 
-      if (courseId) {
-        query = query.eq('course_id', courseId)
+      if (opts?.meetingId) {
+        query = query.eq('meeting_id', opts.meetingId)
+      } else if (opts?.courseId) {
+        query = query.eq('course_id', opts.courseId)
       }
 
       const { data, error } = await query
@@ -485,6 +565,23 @@ export class AttendanceService extends BaseService {
     }
   }
 
+  /**
+   * List attendances by meeting
+   */
+  async listByMeeting(meetingId: string) {
+    try {
+      const { supabase } = await this.getAuthenticatedClient()
+      const { data, error } = await supabase
+        .from('attendances')
+        .select('*')
+        .eq('meeting_id', meetingId)
+      if (error) return { success: false, error }
+      return { success: true, data }
+    } catch (error) {
+      return this.handleError(error, 'listByMeeting')
+    }
+  }
+
   private handleError(error: any, operation: string) {
     console.error(`[AttendanceService.${operation}]`, error)
     return {
@@ -500,6 +597,7 @@ export class AttendanceService extends BaseService {
 
 export const profileService = new ProfileService()
 export const courseService = new CourseService()
+export const meetingService = new MeetingService()
 export const gradeService = new GradeService()
 export const enrollmentService = new EnrollmentService()
 export const attendanceService = new AttendanceService()

@@ -53,6 +53,12 @@ const navItems: NavItem[] = [
     roles: ["admin", "teacher", "student"],
   },
   {
+    title: "Inscripciones",
+    href: "/dashboard/enrollments",
+    icon: Users,
+    roles: ["admin", "teacher"],
+  },
+  {
     title: "Usuarios",
     href: "/dashboard/users",
     icon: Users,
@@ -95,7 +101,7 @@ const navItems: NavItem[] = [
     roles: ["admin", "teacher", "student", "parent"],
   },
   {
-    title: "Reuniones",
+    title: "Reuniones / Clases",
     href: "/dashboard/meetings",
     icon: MessageSquare,
     roles: ["admin", "teacher", "parent"],

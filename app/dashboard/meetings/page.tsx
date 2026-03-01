@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -17,62 +17,13 @@ import {
   Video,
   Users,
   ExternalLink,
+  Trash2,
+  Edit,
 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
-const meetings = [
-  {
-    id: 1,
-    title: "Reunion de Padres - 3ro A",
-    description: "Revision de avances del primer bimestre",
-    type: "parent_teacher",
-    date: "2026-02-10",
-    time: "15:00",
-    duration: 60,
-    location: "Salon 101",
-    meetingUrl: null,
-    organizer: "Prof. Garcia",
-    participants: 25,
-  },
-  {
-    id: 2,
-    title: "Junta de Maestros",
-    description: "Planeacion del segundo semestre",
-    type: "staff",
-    date: "2026-02-08",
-    time: "14:00",
-    duration: 90,
-    location: null,
-    meetingUrl: "https://meet.example.com/xyz",
-    organizer: "Direccion",
-    participants: 15,
-  },
-  {
-    id: 3,
-    title: "Tutoria - Carlos Lopez",
-    description: "Seguimiento academico",
-    type: "class",
-    date: "2026-02-07",
-    time: "16:00",
-    duration: 30,
-    location: "Oficina Orientacion",
-    meetingUrl: null,
-    organizer: "Prof. Martinez",
-    participants: 3,
-  },
-  {
-    id: 4,
-    title: "Asamblea General",
-    description: "Informes y avisos importantes para la comunidad escolar",
-    type: "general",
-    date: "2026-02-15",
-    time: "10:00",
-    duration: 120,
-    location: "Auditorio Principal",
-    meetingUrl: null,
-    organizer: "Direccion",
-    participants: 200,
-  },
-]
+// meetings will be loaded from the API
+const meetings: any[] = []
 
 const typeConfig = {
   parent_teacher: { label: "Padres-Maestros", color: "bg-primary/10 text-primary border-primary/20" },
@@ -83,18 +34,83 @@ const typeConfig = {
 
 export default function MeetingsPage() {
   const [search, setSearch] = useState("")
+  const [meetingsData, setMeetingsData] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
 
-  const filteredMeetings = meetings.filter(
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Eliminar reunión?')) return
+    try {
+      setLoading(true)
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      const res = await fetch(`/api/meetings/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Error eliminando')
+      }
+      // refresh list
+      setMeetingsData((prev) => prev.filter((m) => m.id !== id))
+    } catch (err) {
+      console.error(err)
+      alert('No se pudo eliminar la reunión')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true)
+      try {
+        const res = await fetch('/api/meetings', { credentials: 'include' })
+        if (res.ok) {
+          const json = await res.json()
+          setMeetingsData(json.meetings || [])
+        } else {
+          console.error('Failed to load meetings', await res.text())
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    // load user role for permissions
+    const loadRole = async () => {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        setUserRole(session.user.user_metadata?.role || null)
+        setUserId(session.user.id)
+      }
+    }
+
+    load()
+    loadRole()
+  }, [])
+
+  const filteredMeetings = meetingsData.filter(
     (m) =>
-      m.title.toLowerCase().includes(search.toLowerCase()) ||
-      m.description.toLowerCase().includes(search.toLowerCase())
+      m.title?.toLowerCase().includes(search.toLowerCase()) ||
+      m.description?.toLowerCase().includes(search.toLowerCase())
   )
 
   const upcomingMeetings = filteredMeetings.filter(
-    (m) => new Date(m.date) >= new Date()
+    (m) => new Date(m.meeting_date || m.date) >= new Date()
   )
   const pastMeetings = filteredMeetings.filter(
-    (m) => new Date(m.date) < new Date()
+    (m) => new Date(m.meeting_date || m.date) < new Date()
   )
 
   return (
@@ -105,12 +121,14 @@ export default function MeetingsPage() {
           <h1 className="text-2xl font-bold text-foreground">Reuniones</h1>
           <p className="text-muted-foreground">Programa y gestiona tus reuniones</p>
         </div>
+        {userRole && (userRole === 'admin' || userRole === 'teacher') && (
         <Button asChild className="bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-lg">
           <Link href="/dashboard/meetings/new">
             <Plus className="mr-2 h-4 w-4" />
             Nueva Reunion
           </Link>
         </Button>
+      )}
       </div>
 
       {/* Search */}
@@ -139,7 +157,8 @@ export default function MeetingsPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {upcomingMeetings.map((meeting) => {
-              const type = typeConfig[meeting.type as keyof typeof typeConfig]
+              const type = typeConfig[meeting.type as keyof typeof typeConfig] || { label: meeting.meeting_type || 'Desconocido', color: 'bg-muted/10 text-muted border-muted/20' }
+              const organizerName = meeting.organizer?.full_name || meeting.organizer || meeting.organizer_id
 
               return (
                 <Card
@@ -159,15 +178,45 @@ export default function MeetingsPage() {
                           </Badge>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2">
+                        {(userRole === 'admin' || (userRole === 'teacher' && userId === meeting.organizer_id)) && (
+                          <Button size="icon" variant="ghost" asChild>
+                            <Link href={`/dashboard/meetings/${meeting.id}/edit`}>
+                              <Edit className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        )}
+                        {userRole === 'admin' && (
+                          <Button size="icon" variant="ghost" className="text-destructive" onClick={() => handleDelete(meeting.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <CardDescription>{meeting.description}</CardDescription>
+                    {meeting.meeting_type === 'class' && meeting.topic && (
+                      <p className="text-sm font-medium">Tema: {meeting.topic}</p>
+                    )}
+                    {meeting.meeting_type === 'class' && meeting.materials_url && (
+                      <p className="text-sm">
+                        <a href={meeting.materials_url} target="_blank" rel="noopener noreferrer" className="underline">
+                          Material de respaldo
+                        </a>
+                      </p>
+                    )}
+                    {meeting.meeting_type === 'class' && meeting.feedback && (
+                      <p className="text-sm italic text-muted-foreground">Feedback: {meeting.feedback}</p>
+                    )}
+                    {meeting.meeting_type === 'class' && meeting.teacher_attended === false && (
+                      <p className="text-sm text-red-500">&#9888; Profesor ausente</p>
+                    )}
 
                     <div className="flex flex-wrap gap-3 text-sm">
                       <span className="flex items-center gap-1 text-muted-foreground">
                         <Calendar className="h-4 w-4" />
-                        {new Date(meeting.date).toLocaleDateString("es-MX", {
+                        {new Date(meeting.meeting_date || meeting.date).toLocaleDateString("es-MX", {
                           weekday: "short",
                           day: "numeric",
                           month: "short",
@@ -175,12 +224,12 @@ export default function MeetingsPage() {
                       </span>
                       <span className="flex items-center gap-1 text-muted-foreground">
                         <Clock className="h-4 w-4" />
-                        {meeting.time} ({meeting.duration} min)
+                        {new Date(meeting.meeting_date || meeting.date).toLocaleTimeString("es-MX", { hour: '2-digit', minute: '2-digit' })} ({meeting.duration_minutes || meeting.duration} min)
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      {meeting.meetingUrl ? (
+                      {meeting.meeting_url || meeting.meetingUrl ? (
                         <span className="flex items-center gap-1">
                           <Video className="h-4 w-4" />
                           Virtual
@@ -197,10 +246,12 @@ export default function MeetingsPage() {
                       <div className="flex items-center gap-2">
                         <Avatar className="h-6 w-6">
                           <AvatarFallback className="bg-gradient-to-br from-primary/20 to-accent/20 text-[10px]">
-                            {meeting.organizer[0]}
+                            {organizerName ? organizerName[0] : '?'}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-xs text-muted-foreground">{meeting.organizer}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {organizerName || 'Desconocido'}
+                        </span>
                       </div>
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Users className="h-3 w-3" />
